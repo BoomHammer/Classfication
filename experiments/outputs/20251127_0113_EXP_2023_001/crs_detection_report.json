@@ -1,0 +1,17 @@
+{
+  "timestamp": "2025-11-27T01:13:20.575430",
+  "raster_dir": "E:\\UserFiles\\dingboyang\\Classfication\\data\\raster\\static",
+  "total_rasters": 3,
+  "crs_detection": {
+    "is_consistent": true,
+    "detected_crs": {
+      "EPSG:4326": 3
+    },
+    "most_common_crs": "EPSG:4326",
+    "crs_details": {
+      "E:\\UserFiles\\dingboyang\\Classfication\\data\\raster\\static\\DSM100.tif": "EPSG:4326",
+      "E:\\UserFiles\\dingboyang\\Classfication\\data\\raster\\static\\DSM100aspect.tif": "EPSG:4326",
+      "E:\\UserFiles\\dingboyang\\Classfication\\data\\raster\\static\\DSM100slope.tif": "EPSG:4326"
+    }
+  }
+}
