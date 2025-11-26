@@ -55,4 +55,5 @@ train:
   epochs: 50
   learning_rate: 1e-3
   num_workers: 4                                  # 数据加载线程数
-  device: "cuda"                                  # 计算设备
+  device: "cuda"                                  # 训练设备：'cuda' 或 'cpu'
+  patience: 10                                    # 早停策略：若在若干个epoch内验证集损失不再下降，则停止训练

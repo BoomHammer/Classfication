@@ -62,6 +62,7 @@ from datetime import datetime
 from collections import defaultdict
 
 import numpy as np
+import pandas as pd  # 引入 pandas 用于输出 CSV
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -411,6 +412,22 @@ class Trainer:
         # 计算类别权重
         if self.is_hierarchical:
             self.major_class_weights, self.detail_class_weights = self._compute_class_weights()
+            
+            # 构建 ID 到名称的映射，用于 CSV 输出
+            self.major_id_to_name = {}
+            self.detail_id_to_name = {}
+            if self.hierarchical_map:
+                # 1. 大类 ID -> Name
+                self.major_id_to_name = {
+                    info['major_id']: name 
+                    for name, info in self.hierarchical_map.items()
+                }
+                # 2. 小类 ID -> Name
+                for major_name, info in self.hierarchical_map.items():
+                    for detail_name, detail_id in info['detail_classes'].items():
+                        self.detail_id_to_name[detail_id] = detail_name
+            self.logger.log("已构建类别名称映射表 (ID -> Name)")
+            
         else:
             self.class_weights = self._compute_class_weights()
         
@@ -657,12 +674,13 @@ class Trainer:
             else:
                 raise ValueError("分层分类必须使用字典格式的 batch")
             
-            # 前向传播
-            outputs = self.model(dynamic, static)
+            # 前向传播：必须传入 major_labels 以启用 Teacher Forcing
+            outputs = self.model(dynamic, static, major_labels=major_labels)
+            
             major_logits = outputs['major_logits']  # (B, num_major)
             detail_logits = outputs['detail_logits']  # (B, max_detail)
             
-            # 计算两级损失 - 修复点：使用分别初始化的 criterion
+            # 计算两级损失
             loss_major = self.criterion_major(major_logits, major_labels)
             loss_detail = self.criterion_detail(detail_logits, detail_labels)
             
@@ -728,13 +746,15 @@ class Trainer:
         
         return metrics
     
-    def validate(self) -> Dict[str, float]:
-        """在验证集上评估模型"""
+    def validate(self, epoch: Optional[int] = None) -> Dict[str, float]:
+        """
+        在验证集上评估模型
+        """
         if self.val_dataloader is None:
             return {}
         
         if self.is_hierarchical:
-            return self._validate_hierarchical()
+            return self._validate_hierarchical(epoch=epoch)
         else:
             return self._validate_standard()
     
@@ -797,17 +817,22 @@ class Trainer:
         
         return metrics
     
-    def _validate_hierarchical(self) -> Dict[str, float]:
-        """分层分类的验证"""
+    def _validate_hierarchical(self, epoch: Optional[int] = None) -> Dict[str, float]:
+        """
+        分层分类的验证
+        【功能】支持输出预测结果到 CSV
+        """
         self.model.eval()
         
         total_loss = 0.0
         total_major_loss = 0.0
         total_detail_loss = 0.0
-        all_major_preds = []
-        all_major_targets = []
-        all_detail_preds = []
-        all_detail_targets = []
+        
+        # 用于收集所有结果以便保存 CSV
+        all_results = {
+            'major_true': [], 'major_pred': [],
+            'detail_true': [], 'detail_pred': []
+        }
         
         pbar = tqdm(
             self.val_dataloader,
@@ -830,12 +855,12 @@ class Trainer:
                 else:
                     raise ValueError("分层分类必须使用字典格式的 batch")
                 
-                # 前向传播
+                # 前向传播 (验证不使用 major_labels)
                 outputs = self.model(dynamic, static)
                 major_logits = outputs['major_logits']
                 detail_logits = outputs['detail_logits']
                 
-                # 计算两级损失 - 修复点：使用分别初始化的 criterion
+                # 计算两级损失
                 loss_major = self.criterion_major(major_logits, major_labels)
                 loss_detail = self.criterion_detail(detail_logits, detail_labels)
                 loss = weight_major * loss_major + weight_detail * loss_detail
@@ -850,31 +875,64 @@ class Trainer:
                 detail_preds = torch.argmax(detail_logits, dim=1).cpu().numpy()
                 detail_targets = detail_labels.cpu().numpy()
                 
-                all_major_preds.extend(major_preds)
-                all_major_targets.extend(major_targets)
-                all_detail_preds.extend(detail_preds)
-                all_detail_targets.extend(detail_targets)
+                # 收集结果
+                all_results['major_true'].extend(major_targets)
+                all_results['major_pred'].extend(major_preds)
+                all_results['detail_true'].extend(detail_targets)
+                all_results['detail_pred'].extend(detail_preds)
+        
+        # 保存 Debug 表格
+        if epoch is not None:
+            try:
+                # 构造 DataFrame
+                df = pd.DataFrame(all_results)
+                
+                # 映射 ID 为中文名称 (如果映射表存在)
+                if hasattr(self, 'major_id_to_name') and self.major_id_to_name:
+                    df['major_true_name'] = df['major_true'].map(self.major_id_to_name)
+                    df['major_pred_name'] = df['major_pred'].map(self.major_id_to_name)
+                    df['detail_true_name'] = df['detail_true'].map(self.detail_id_to_name)
+                    df['detail_pred_name'] = df['detail_pred'].map(self.detail_id_to_name)
+                    
+                    # 调整列顺序
+                    cols = ['major_true_name', 'major_pred_name', 'detail_true_name', 'detail_pred_name',
+                            'major_true', 'major_pred', 'detail_true', 'detail_pred']
+                    df = df[cols]
+                
+                # 增加一列判断是否正确
+                df['major_correct'] = df['major_true'] == df['major_pred']
+                df['detail_correct'] = df['detail_true'] == df['detail_pred']
+                
+                # 保存文件
+                filename = f'val_predictions_epoch_{epoch}.csv'
+                save_path = self.output_dir / filename
+                df.to_csv(save_path, index=False, encoding='utf-8-sig')
+                if self.verbose:
+                    self.logger.log(f"📝 验证集预测结果已保存: {filename}")
+                
+            except Exception as e:
+                self.logger.log(f"⚠️ 保存验证表格失败: {e}", level='WARNING')
         
         # 计算指标
         major_metrics = MetricsCalculator.compute_metrics(
-            np.array(all_major_preds),
-            np.array(all_major_targets),
+            np.array(all_results['major_pred']),
+            np.array(all_results['major_true']),
             len(self.hierarchical_map),
             average_methods=['macro']
         )
         
         detail_metrics = MetricsCalculator.compute_metrics(
-            np.array(all_detail_preds),
-            np.array(all_detail_targets),
+            np.array(all_results['detail_pred']),
+            np.array(all_results['detail_true']),
             self.num_classes,
             average_methods=['macro']
         )
         
         # 层级准确率
         hierarchical_correct = (
-            np.array(all_major_preds) == np.array(all_major_targets)
+            np.array(all_results['major_pred']) == np.array(all_results['major_true'])
         ) & (
-            np.array(all_detail_preds) == np.array(all_detail_targets)
+            np.array(all_results['detail_pred']) == np.array(all_results['detail_true'])
         )
         hierarchical_accuracy = hierarchical_correct.mean()
         
@@ -948,7 +1006,7 @@ class Trainer:
             weight_decay=weight_decay,
         )
         
-        # 初始化损失函数 - 修复点：区分分层模式
+        # 初始化损失函数
         if self.is_hierarchical:
             self.criterion_major = WeightedCrossEntropyLoss(weight=self.major_class_weights)
             self.criterion_detail = WeightedCrossEntropyLoss(weight=self.detail_class_weights)
@@ -974,7 +1032,7 @@ class Trainer:
             train_metrics = self.train_epoch(epoch, num_epochs)
             
             # 验证
-            val_metrics = self.validate() if self.val_dataloader else {}
+            val_metrics = self.validate(epoch=epoch) if self.val_dataloader else {}
             
             # 合并指标
             epoch_metrics = {**train_metrics, **val_metrics}
@@ -987,7 +1045,6 @@ class Trainer:
             self.logger.log_metrics(epoch, epoch_metrics)
             
             # 检查是否是最佳模型
-            # ✨ 分层和标准模式选择不同的指标
             if self.is_hierarchical:
                 val_metric = val_metrics.get('val_hierarchical_accuracy', -np.inf)
             else:
@@ -1019,7 +1076,6 @@ class Trainer:
         self.logger.print_header("训练完成")
         self.logger.log(f"总耗时: {elapsed_time / 3600:.2f} 小时")
         
-        # ✨ 分层和标准模式显示不同的最佳指标
         if self.is_hierarchical:
             self.logger.log(f"最佳模型: Epoch {self.best_epoch} (Val 层级准确率: {self.best_val_f1:.4f})")
         else:
@@ -1093,6 +1149,21 @@ class Trainer:
                 all_targets.extend(targets)
                 all_probabilities.extend(probabilities.cpu().numpy())
         
+        # 【新增】保存测试集结果到 CSV
+        try:
+            df = pd.DataFrame({
+                'target': all_targets,
+                'prediction': all_predictions
+            })
+            # 如果有概率值也可以保存（可选）
+            # df['probability'] = np.max(all_probabilities, axis=1)
+            
+            save_path = self.output_dir / 'test_predictions.csv'
+            df.to_csv(save_path, index=False, encoding='utf-8-sig')
+            self.logger.log(f"📝 测试集预测结果已保存: {save_path}")
+        except Exception as e:
+            self.logger.log(f"⚠️ 保存测试结果CSV失败: {e}", level='WARNING')
+        
         # 计算指标
         metrics = MetricsCalculator.compute_metrics(
             np.array(all_predictions),
@@ -1128,10 +1199,11 @@ class Trainer:
         
         self.model.eval()
         
-        all_major_preds = []
-        all_major_targets = []
-        all_detail_preds = []
-        all_detail_targets = []
+        # 用于收集结果
+        all_results = {
+            'major_true': [], 'major_pred': [],
+            'detail_true': [], 'detail_pred': []
+        }
         
         pbar = tqdm(
             test_loader,
@@ -1161,29 +1233,58 @@ class Trainer:
                 detail_preds = torch.argmax(detail_logits, dim=1).cpu().numpy()
                 detail_targets = detail_labels.cpu().numpy()
                 
-                all_major_preds.extend(major_preds)
-                all_major_targets.extend(major_targets)
-                all_detail_preds.extend(detail_preds)
-                all_detail_targets.extend(detail_targets)
+                # 收集结果
+                all_results['major_true'].extend(major_targets)
+                all_results['major_pred'].extend(major_preds)
+                all_results['detail_true'].extend(detail_targets)
+                all_results['detail_pred'].extend(detail_preds)
         
+        # 【新增】保存测试结果表格
+        try:
+            df = pd.DataFrame(all_results)
+            
+            # 映射 ID 为中文名称 (如果映射表存在)
+            if hasattr(self, 'major_id_to_name') and self.major_id_to_name:
+                df['major_true_name'] = df['major_true'].map(self.major_id_to_name)
+                df['major_pred_name'] = df['major_pred'].map(self.major_id_to_name)
+                df['detail_true_name'] = df['detail_true'].map(self.detail_id_to_name)
+                df['detail_pred_name'] = df['detail_pred'].map(self.detail_id_to_name)
+                
+                # 调整列顺序
+                cols = ['major_true_name', 'major_pred_name', 'detail_true_name', 'detail_pred_name',
+                        'major_true', 'major_pred', 'detail_true', 'detail_pred']
+                df = df[cols]
+            
+            # 增加一列判断是否正确
+            df['major_correct'] = df['major_true'] == df['major_pred']
+            df['detail_correct'] = df['detail_true'] == df['detail_pred']
+            
+            # 保存文件
+            save_path = self.output_dir / 'test_predictions.csv'
+            df.to_csv(save_path, index=False, encoding='utf-8-sig')
+            self.logger.log(f"📝 测试集预测结果已保存: {save_path}")
+            
+        except Exception as e:
+            self.logger.log(f"⚠️ 保存测试表格失败: {e}", level='WARNING')
+
         # 计算指标
         major_metrics = MetricsCalculator.compute_metrics(
-            np.array(all_major_preds),
-            np.array(all_major_targets),
+            np.array(all_results['major_pred']),
+            np.array(all_results['major_true']),
             len(self.hierarchical_map),
         )
         
         detail_metrics = MetricsCalculator.compute_metrics(
-            np.array(all_detail_preds),
-            np.array(all_detail_targets),
+            np.array(all_results['detail_pred']),
+            np.array(all_results['detail_true']),
             self.num_classes,
         )
         
         # 层级准确率
         hierarchical_correct = (
-            np.array(all_major_preds) == np.array(all_major_targets)
+            np.array(all_results['major_pred']) == np.array(all_results['major_true'])
         ) & (
-            np.array(all_detail_preds) == np.array(all_detail_targets)
+            np.array(all_results['detail_pred']) == np.array(all_results['detail_true'])
         )
         hierarchical_accuracy = hierarchical_correct.mean()
         

@@ -1,0 +1,28 @@
+{
+  "dynamic": {
+    "mean": [
+      635.2479521602755
+    ],
+    "std": [
+      1189.5273504770284
+    ],
+    "num_channels": 1,
+    "channel_names": [
+      "Band_0"
+    ],
+    "total_samples": 1361934904
+  },
+  "static": {
+    "mean": [
+      2218.603415148244
+    ],
+    "std": [
+      1611.6093941764545
+    ],
+    "num_channels": 1,
+    "channel_names": [
+      "Band_0"
+    ],
+    "total_samples": 471345270
+  }
+}
