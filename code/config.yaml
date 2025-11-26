@@ -1,0 +1,58 @@
+project_name: "SITS_LandCover_Classification"
+experiment_id: "EXP_2023_001"
+
+# 1. 输入输出路径 (I/O Paths)
+paths:
+  csv_labels: "../data/raw/traindata20250626ori.csv"         # 标签CSV文件路径
+  static_images_dir: "../data/raster/static/"     # 静态数据（如DEM）文件夹
+  dynamic_images_dir: "../data/raster/dynamic/"   # 动态数据（如NDVI、MOD09A1、Sentinel-2）文件夹
+  output_dir: "../experiments/outputs/"           # 模型权重与日志保存路径
+  temp_dir: "../data/temp/"                       # 临时缓存与中间文件
+
+# 2. 数据规范 (Data Specifications)
+data_specs:
+  csv_columns:                                    # 映射用户CSV的列名
+    id: "Index"
+    longitude: "X"
+    latitude: "Y"
+    major_class: "Formation"
+    detail_class: "Alliance"
+  
+  spatial:
+    csv_crs: "auto"                               # CSV 坐标系：'auto' 自动检测，或指定 EPSG 代码
+    raster_crs: "auto"                            # 栅格坐标系：'auto' 自动检测，或统一使用的 EPSG 代码
+    target_crs: "EPSG:4326"                       # 目标处理坐标系（自动检测失败时使用此值）
+    auto_reproject: false                         # 是否自动重投影到目标坐标系（仅当源坐标系不一致时）
+    patch_size: 64                                # 训练切片大小 (64x64像素)
+    resolution: 10.0                              # 影像重采样分辨率 (米)
+  
+  temporal:
+    pad_value: 0.0                                # 时间序列缺失时的填充值
+    missing_value_strategy: "zero_padding"        # 缺失值处理：'zero_padding', 'linear_interpolation', 'forward_fill'
+    normalization_method: "zscore"                # 归一化方法：'zscore', 'minmax', 'none'
+  
+  raster_crawler:
+    filename_pattern: 'GPP(?P<year>\d{2})(?P<month>\d{2})(?P<day>\d{2})'  # 正则表达式解析文件名
+    file_extensions: ['.tif', '.tiff', ]   # 要扫描的文件后缀
+    lazy_loading: true                            # 使用懒加载（仅读取元数据）
+    build_rtree_index: true                       # 构建 R-树空间索引
+
+# 3. 模型架构参数 (Model Architecture)
+model:
+  name: "DSSTFN"                           # 模型名称
+  # ⚠️ 以下参数将在运行时自动检测，不应手动设置
+  # in_channels_dynamic: 由 RasterCrawler 自动检测
+  # in_channels_static: 由 RasterCrawler 自动检测
+  # num_classes: 由 LabelEncoder 自动检测
+  temporal_encoder: "LTAE"                        # 时间编码器类型
+  dropout: 0.2
+  hidden_dim: 64                                  # 隐层维度
+
+# 4. 训练超参数 (Training Hyperparameters)
+train:
+  seed: 42                                        # 随机种子，保证可复现
+  batch_size: 32
+  epochs: 50
+  learning_rate: 1e-3
+  num_workers: 4                                  # 数据加载线程数
+  device: "cuda"                                  # 计算设备

@@ -1,0 +1,36 @@
+{
+  "labels": {
+    "original_count": 1391,
+    "valid_count": 1391,
+    "invalid_count": 0,
+    "invalid_indices": [],
+    "major_classes": 0,
+    "detailed_classes": 0,
+    "major_distribution": {},
+    "detailed_distribution": {},
+    "target_crs": "EPSG:4326"
+  },
+  "dynamic_rasters": {
+    "total_files": 95,
+    "parsed_files": 93,
+    "unparsed_files": 2,
+    "time_range": {
+      "start": "2020-01-01T00:00:00",
+      "end": "2023-12-27T00:00:00"
+    },
+    "crs_distribution": [
+      "EPSG:4326"
+    ]
+  },
+  "static_rasters": {
+    "total_files": 3,
+    "crs_distribution": [
+      "EPSG:4326"
+    ]
+  },
+  "crs_consistency": {
+    "target_crs": "EPSG:4326",
+    "issues_count": 0,
+    "issues": []
+  }
+}

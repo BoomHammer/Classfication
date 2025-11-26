@@ -1,0 +1,23 @@
+{
+  "total_rasters": 95,
+  "raster_dir": "E:\\UserFiles\\dingboyang\\Classfication\\data\\raster\\dynamic",
+  "date_range": {
+    "start_date": "2020-01-01T00:00:00",
+    "end_date": "2023-12-27T00:00:00",
+    "date_count": 93
+  },
+  "spatial_range": {
+    "min_x": 73.00000000000006,
+    "min_y": 34.10000000000008,
+    "max_x": 96.70000000000005,
+    "max_y": 49.500000000000114
+  },
+  "crs_distribution": {
+    "EPSG:4326": 95
+  },
+  "file_extensions": [
+    ".tif",
+    ".tiff",
+    ".jp2"
+  ]
+}

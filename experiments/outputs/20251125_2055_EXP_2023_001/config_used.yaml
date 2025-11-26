@@ -1,0 +1,45 @@
+project_name: SITS_LandCover_Classification
+experiment_id: EXP_2023_001
+paths:
+  csv_labels: ../data/raw/traindata20250626ori.csv
+  static_images_dir: ../data/raster/static/
+  dynamic_images_dir: ../data/raster/dynamic/
+  output_dir: ../experiments/outputs/
+  temp_dir: ../data/temp/
+data_specs:
+  csv_columns:
+    id: Index
+    longitude: X
+    latitude: Y
+    major_class: Formation
+    detail_class: Alliance
+  spatial:
+    target_crs: EPSG:4326
+    patch_size: 64
+    resolution: 10.0
+  temporal:
+    time_grouping_method: exact
+    max_sequence_length: 12
+    pad_value: 0.0
+  raster_crawler:
+    filename_pattern: GPP(?P<year>\d{2})(?P<month>\d{2})(?P<day>\d{2})
+    file_extensions:
+    - .tif
+    - .tiff
+    - .jp2
+    lazy_loading: true
+    build_rtree_index: true
+model:
+  name: ResNet18_LTAE
+  in_channels_dynamic: 4
+  in_channels_static: 1
+  num_classes: 8
+  temporal_encoder: LTAE
+  dropout: 0.2
+train:
+  seed: 42
+  batch_size: 32
+  epochs: 50
+  learning_rate: 1e-3
+  num_workers: 4
+  device: cuda
