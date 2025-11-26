@@ -418,7 +418,7 @@ def phase_3_statistical_analysis(config, dynamic_crawler, static_crawler):
             calculator.compute_global_stats(
                 dynamic_rasters=dynamic_rasters,
                 static_rasters=static_rasters,
-                sampling_rate=0.1,  # 采样 10%
+                sampling_rate=0.6,  # 采样 60%
             )
             print_success("统计量计算完成")
             

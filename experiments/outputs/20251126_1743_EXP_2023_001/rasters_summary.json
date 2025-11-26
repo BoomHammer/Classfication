@@ -1,0 +1,18 @@
+{
+  "total_rasters": 3,
+  "raster_dir": "E:\\UserFiles\\dingboyang\\Classfication\\data\\raster\\static",
+  "date_range": null,
+  "spatial_range": {
+    "min_x": 72.83719986697905,
+    "min_y": 33.76317995363222,
+    "max_x": 97.09620411462673,
+    "max_y": 49.442374922654345
+  },
+  "crs_distribution": {
+    "EPSG:4326": 3
+  },
+  "file_extensions": [
+    ".tif",
+    ".tiff"
+  ]
+}

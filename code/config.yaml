@@ -24,11 +24,11 @@ data_specs:
     target_crs: "EPSG:4326"                       # 目标处理坐标系（自动检测失败时使用此值）
     auto_reproject: false                         # 是否自动重投影到目标坐标系（仅当源坐标系不一致时）
     patch_size: 64                                # 训练切片大小 (64x64像素)
-    resolution: 10.0                              # 影像重采样分辨率 (米)
+    resolution: 250.0                              # 影像重采样分辨率 (米)
   
   temporal:
     pad_value: 0.0                                # 时间序列缺失时的填充值
-    missing_value_strategy: "zero_padding"        # 缺失值处理：'zero_padding', 'linear_interpolation', 'forward_fill'
+    missing_value_strategy: "forward_fill"        # 缺失值处理：'zero_padding', 'linear_interpolation', 'forward_fill'
     normalization_method: "zscore"                # 归一化方法：'zscore', 'minmax', 'none'
   
   raster_crawler:

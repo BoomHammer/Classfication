@@ -590,7 +590,7 @@ if __name__ == "__main__":
             print("\n3️⃣  计算全局统计量...")
             calculator.compute_global_stats(
                 dynamic_rasters=dynamic_rasters,
-                sampling_rate=0.1,  # 采样 10%
+                sampling_rate=0.6,  # 采样 60%
             )
             
             # 保存统计量
