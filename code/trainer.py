@@ -50,119 +50,6 @@ trainer.py: 训练循环与日志系统
 │  - TrainingLogger:          训练日志                         │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
-
-【使用示例】
-
-from trainer import Trainer
-from torch.utils.data import DataLoader
-
-# 初始化训练器
-trainer = Trainer(
-    model=model,
-    train_dataloader=train_loader,
-    val_dataloader=val_loader,
-    num_classes=8,
-    device='cuda',
-    config=config,
-    output_dir='./experiments/outputs'
-)
-
-# 执行训练
-history = trainer.train(
-    num_epochs=50,
-    learning_rate=1e-3,
-    weight_decay=1e-4,
-    debug=False,  # 设为 True 进行快速过拟合测试
-    patience=10,  # 早停：10 个 epoch 无改进则停止
-)
-
-# 查看训练历史
-print(history['train_loss'])
-print(history['val_f1_score'])
-
-【预期输出】
-
-Debug Mode (小样本, 10 个 epoch):
-[INFO] 开始 Overfit 测试 (Debug Mode)...
-Epoch 1/10: Loss = 2.30 | Acc = 10.0%
-Epoch 5/10: Loss = 1.15 | Acc = 45.0%
-Epoch 10/10: Loss = 0.12 | Acc = 95.0%
-✅ 模型学习能力正常
-
-正常模式 (完整数据集):
-[INFO] ================================================
-[INFO] 开始训练
-[INFO] ================================================
-Epoch 1/50: 
-  Train Loss: 1.87 | Train Acc: 25.6% | Train F1: 0.24
-  Val Loss: 1.65 | Val Acc: 32.1% | Val F1: 0.30 (↑ best)
-Epoch 2/50:
-  Train Loss: 1.52 | Train Acc: 38.9% | Train F1: 0.37
-  Val Loss: 1.41 | Val Acc: 41.2% | Val F1: 0.39 (↑ best)
-...
-Epoch 45/50:
-  Train Loss: 0.32 | Train Acc: 92.3% | Train F1: 0.92
-  Val Loss: 0.48 | Val Acc: 89.1% | Val F1: 0.88
-Epoch 46/50:
-  Train Loss: 0.28 | Train Acc: 93.1% | Train F1: 0.93
-  Val Loss: 0.52 | Val Acc: 88.5% | Val F1: 0.87 (early stop)
-[INFO] ================================================
-[INFO] 训练完成
-[INFO] 最佳模型在 Epoch 45 (Val F1: 0.88)
-[INFO] ================================================
-
-【关键特性说明】
-
-1. 类别权衡处理
-   问题：遥感数据中某些类别（如水体）样本稀少，某些类别（如耕地）样本众多
-   解决方案：
-     - 计算每个类别的频率
-     - 反向加权：权重 = 总样本数 / (类别数 * 类别样本数)
-     - 传递给 CrossEntropyLoss 的 weight 参数
-
-2. 掩膜损失设计
-   问题：我们在 64x64 图块上训练，但标签仅对应中心像素（或 CSV 坐标点）
-   解决方案（三种）：
-     a) 简单版本：输出全局平均池化后的向量（无空间信息，不推荐）
-     b) 焦点版本：使用中心像素掩膜，仅反向传播中心像素梯度
-     c) 完整版本：训练完整的 U-Net 风格的分割网络
-
-   本实现采用焦点版本（掩膜损失）：
-     - 定义掩膜 M (中心像素 = 1，其他像素 = 0)
-     - Loss = CrossEntropy * M （element-wise）
-     - 这样只有中心像素的梯度被反向传播
-
-3. 早停机制
-   - 监控验证集 F1-Score
-   - 若连续 patience 个 epoch 无改进，则停止训练
-   - 自动加载最佳模型权重
-
-【数学细节】
-
-类别权重计算：
-  n_total = Σ n_c (所有样本数)
-  n_classes = 类别总数
-  weight_c = n_total / (n_classes * n_c) for class c
-
-其中：
-  - 样本少的类别 → 权重高
-  - 样本多的类别 → 权重低
-  - 这样在损失函数中提高了稀少类别的重要性
-
-掩膜损失（Masked Loss）：
-  设 logits ∈ ℝ^(B × num_classes × H × W)  # 若为分割任务
-  或 logits ∈ ℝ^(B × num_classes)          # 若为分类任务
-  
-  标准 CrossEntropyLoss:
-    loss = -Σ y_c log(softmax(logit_c))
-  
-  掩膜版本（针对中心像素）：
-    mask ∈ {0, 1}^(B × H × W)  # 中心像素标记为 1
-    loss = -mask ⊙ Σ y_c log(softmax(logit_c))
-    其中 ⊙ 表示 element-wise 乘积
-
-  这只对中心像素计算损失，其他位置的梯度为 0。
-
 """
 
 import json
@@ -170,7 +57,7 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
 from datetime import datetime
 from collections import defaultdict
 
@@ -423,82 +310,6 @@ class MetricsCalculator:
 # 损失函数
 # ============================================================================
 
-class MaskedCrossEntropyLoss(nn.Module):
-    """
-    掩膜交叉熵损失
-    
-    用于处理仅在特定位置（如中心像素）有标签的情况。
-    适用于从点位样本提取的 patch，其中仅中心像素有真实标签。
-    
-    数学表达：
-        标准 CE: loss = -Σ y_i log(p_i)
-        掩膜 CE: loss = -Σ mask_i * y_i log(p_i)
-    
-    其中 mask_i 为 1 当该位置有标签，否则为 0。
-    """
-    
-    def __init__(
-        self,
-        weight: Optional[torch.Tensor] = None,
-        reduction: str = 'mean',
-        ignore_index: int = -100,
-    ):
-        """
-        初始化掩膜交叉熵损失
-        
-        Args:
-            weight: 类别权重张量，形状为 (num_classes,)
-            reduction: 归约方式 ('mean', 'sum', 'none')
-            ignore_index: 忽略的索引
-        """
-        super().__init__()
-        self.weight = weight
-        self.reduction = reduction
-        self.ignore_index = ignore_index
-        
-        # 使用 PyTorch 内置的 CrossEntropyLoss
-        self.ce_loss = nn.CrossEntropyLoss(
-            weight=weight,
-            reduction='none',
-            ignore_index=ignore_index,
-        )
-    
-    def forward(
-        self,
-        logits: torch.Tensor,
-        targets: torch.Tensor,
-        mask: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        """
-        计算掩膜交叉熵损失
-        
-        Args:
-            logits: 预测 logits，形状为 (B, num_classes) 或 (B, num_classes, H, W)
-            targets: 目标标签，形状为 (B,) 或 (B, H, W)
-            mask: 掩膜（可选），形状与 targets 相同，值为 0 或 1
-        
-        Returns:
-            损失值（标量）
-        """
-        # 计算损失
-        loss = self.ce_loss(logits, targets)  # (B,) 或 (B, H, W)
-        
-        # 应用掩膜（如果提供）
-        if mask is not None:
-            loss = loss * mask
-        
-        # 按设置的方式归约
-        if self.reduction == 'mean':
-            if mask is not None:
-                return loss.sum() / mask.sum().clamp(min=1)
-            else:
-                return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        else:
-            return loss
-
-
 class WeightedCrossEntropyLoss(nn.Module):
     """
     加权交叉熵损失
@@ -536,13 +347,6 @@ class WeightedCrossEntropyLoss(nn.Module):
 class Trainer:
     """
     训练器类
-    
-    功能：
-    1. 执行完整的训练循环
-    2. 计算类别权重处理不平衡
-    3. 监控验证指标并保存最佳模型
-    4. 支持早停机制
-    5. 生成详细的训练报告
     """
     
     def __init__(
@@ -551,31 +355,20 @@ class Trainer:
         train_dataloader: DataLoader,
         val_dataloader: Optional[DataLoader] = None,
         test_dataloader: Optional[DataLoader] = None,
-        num_classes: Optional[int] = None,  # 改为可选（用于向后兼容）
-        hierarchical_map: Optional[dict] = None,  # 新增：分层映射
+        num_classes: Optional[int] = None,
+        hierarchical_map: Optional[dict] = None,
         device: str = 'cuda',
         output_dir: Optional[Path] = None,
         verbose: bool = True,
     ):
         """
         初始化训练器
-        
-        Args:
-            model: PyTorch 模型
-            train_dataloader: 训练数据加载器
-            val_dataloader: 验证数据加载器（可选）
-            test_dataloader: 测试数据加载器（可选）
-            num_classes: 类别总数（向后兼容，可省略）
-            hierarchical_map: 分层映射字典（用于分层分类）
-            device: 计算设备 ('cuda' 或 'cpu')
-            output_dir: 输出目录
-            verbose: 是否打印详细日志
         """
         self.model = model
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
         self.test_dataloader = test_dataloader
-        self.hierarchical_map = hierarchical_map  # 新增
+        self.hierarchical_map = hierarchical_map
         self.device = torch.device(device)
         self.verbose = verbose
         
@@ -588,7 +381,7 @@ class Trainer:
             )
             self.is_hierarchical = True
         else:
-            # 使用传入的 num_classes（向后兼容）
+            # 使用传入的 num_classes
             self.num_classes = num_classes if num_classes is not None else 8
             self.is_hierarchical = False
         
@@ -616,15 +409,19 @@ class Trainer:
         self.model = self.model.to(self.device)
         
         # 计算类别权重
-        self.class_weights = self._compute_class_weights()
+        if self.is_hierarchical:
+            self.major_class_weights, self.detail_class_weights = self._compute_class_weights()
+        else:
+            self.class_weights = self._compute_class_weights()
         
         # 初始化优化器和损失函数（延后到 train 方法）
         self.optimizer = None
         self.criterion = None
+        self.criterion_major = None
+        self.criterion_detail = None
         
-        # 训练历史
+        # 训练历史初始化
         if self.is_hierarchical:
-            # 分层分类的历史
             self.history = {
                 'train_loss': [],
                 'train_major_loss': [],
@@ -640,7 +437,6 @@ class Trainer:
                 'val_hierarchical_accuracy': [],
             }
         else:
-            # 标准分类的历史
             self.history = {
                 'train_loss': [],
                 'train_accuracy': [],
@@ -658,81 +454,102 @@ class Trainer:
         self.best_epoch = 0
         self.patience_counter = 0
     
-    def _compute_class_weights(self) -> torch.Tensor:
+    def _compute_class_weights(self) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
         计算类别权重以处理类别不平衡
-        
-        算法：
-        1. 统计训练集中每个类别的样本数
-        2. 权重 = 总样本数 / (类别数 * 类别样本数)
-        3. 这样样本少的类别获得更高的权重
-        
-        Returns:
-            类别权重张量，形状为 (num_classes,)
+        如果是分层模式，返回 (major_weights, detail_weights)
         """
         self.logger.log("[权重计算] 计算类别权重...")
         
-        # 统计标签分布
-        label_counts = np.zeros(self.num_classes)
-        total_samples = 0
-        
-        for batch in tqdm(
-            self.train_dataloader,
-            desc="统计类别分布",
-            disable=not self.verbose,
-            leave=False
-        ):
-            if isinstance(batch, dict):
-                labels = batch['label']
-            else:
-                labels = batch[1]  # 假设是 (data, label) 元组
+        if self.is_hierarchical:
+            # ====== 分层模式权重计算 ======
+            num_major = len(self.hierarchical_map)
+            num_detail = self.num_classes
             
-            labels = labels.cpu().numpy()
-            for label in labels:
-                label_counts[label] += 1
-                total_samples += 1
-        
-        # 计算权重
-        weights = np.zeros(self.num_classes)
-        for c in range(self.num_classes):
-            if label_counts[c] > 0:
-                # 反向加权
-                weights[c] = total_samples / (self.num_classes * label_counts[c])
-            else:
-                weights[c] = 1.0  # 如果某类不存在，权重为 1
-        
-        # 归一化（使得平均权重为 1）
-        weights = weights / weights.mean()
-        
-        # 转换为张量
-        class_weights = torch.from_numpy(weights).float().to(self.device)
-        
-        # 打印类别分布
-        self.logger.log("[权重计算] 类别分布:")
-        for c in range(self.num_classes):
-            count = int(label_counts[c])
-            weight = weights[c]
-            self.logger.log(f"  类别 {c}: {count:6d} 样本 | 权重: {weight:.4f}")
-        
-        self.logger.log(f"[权重计算] 总样本数: {total_samples}")
-        
-        return class_weights
+            major_counts = np.zeros(num_major)
+            detail_counts = np.zeros(num_detail)
+            total_samples = 0
+            
+            for batch in tqdm(self.train_dataloader, desc="统计类别分布", disable=not self.verbose, leave=False):
+                if isinstance(batch, dict):
+                    m_labels = batch['major_label'].cpu().numpy()
+                    d_labels = batch['detail_label'].cpu().numpy()
+                    for l in m_labels: major_counts[l] += 1
+                    for l in d_labels: detail_counts[l] += 1
+                    total_samples += len(m_labels)
+                else:
+                    self.logger.log("警告: 分层模式下收到非字典格式 batch，跳过权重计算", 'WARNING')
+                    return torch.ones(num_major).to(self.device), torch.ones(num_detail).to(self.device)
+            
+            # 计算大类权重
+            major_weights = np.zeros(num_major)
+            for c in range(num_major):
+                if major_counts[c] > 0:
+                    major_weights[c] = total_samples / (num_major * major_counts[c])
+                else:
+                    major_weights[c] = 1.0
+            major_weights = major_weights / major_weights.mean()
+            
+            # 计算小类权重
+            detail_weights = np.zeros(num_detail)
+            for c in range(num_detail):
+                if detail_counts[c] > 0:
+                    detail_weights[c] = total_samples / (num_detail * detail_counts[c])
+                else:
+                    detail_weights[c] = 1.0
+            detail_weights = detail_weights / detail_weights.mean()
+            
+            self.logger.log(f"[权重计算] 分层模式 - 大类权重形状: {major_weights.shape}, 小类权重形状: {detail_weights.shape}")
+            
+            return (
+                torch.from_numpy(major_weights).float().to(self.device),
+                torch.from_numpy(detail_weights).float().to(self.device)
+            )
+
+        else:
+            # ====== 标准模式权重计算 ======
+            label_counts = np.zeros(self.num_classes)
+            total_samples = 0
+            
+            for batch in tqdm(
+                self.train_dataloader,
+                desc="统计类别分布",
+                disable=not self.verbose,
+                leave=False
+            ):
+                if isinstance(batch, dict):
+                    labels = batch['label']
+                else:
+                    labels = batch[1]  # 假设是 (data, label) 元组
+                
+                labels = labels.cpu().numpy()
+                for label in labels:
+                    label_counts[label] += 1
+                    total_samples += 1
+            
+            # 计算权重
+            weights = np.zeros(self.num_classes)
+            for c in range(self.num_classes):
+                if label_counts[c] > 0:
+                    # 反向加权
+                    weights[c] = total_samples / (self.num_classes * label_counts[c])
+                else:
+                    weights[c] = 1.0  # 如果某类不存在，权重为 1
+            
+            # 归一化（使得平均权重为 1）
+            weights = weights / weights.mean()
+            
+            # 打印类别分布
+            self.logger.log("[权重计算] 类别分布:")
+            for c in range(self.num_classes):
+                count = int(label_counts[c])
+                weight = weights[c]
+                self.logger.log(f"  类别 {c}: {count:6d} 样本 | 权重: {weight:.4f}")
+            
+            return torch.from_numpy(weights).float().to(self.device)
     
     def train_epoch(self, epoch: int, num_epochs: int) -> Dict[str, float]:
-        """
-        执行一个 epoch 的训练
-        
-        支持两种模式：
-        1. 标准分类：直接优化单个输出
-        2. 分层分类：优化大类和小类损失的加权组合
-        
-        Args:
-            epoch: 当前 epoch 编号（从 1 开始）
-            num_epochs: 总 epoch 数
-        
-        Returns:
-            包含训练指标的字典
-        """
+        """执行一个 epoch 的训练"""
         if self.is_hierarchical:
             return self._train_epoch_hierarchical(epoch, num_epochs)
         else:
@@ -845,9 +662,9 @@ class Trainer:
             major_logits = outputs['major_logits']  # (B, num_major)
             detail_logits = outputs['detail_logits']  # (B, max_detail)
             
-            # 计算两级损失
-            loss_major = self.criterion(major_logits, major_labels)
-            loss_detail = self.criterion(detail_logits, detail_labels)
+            # 计算两级损失 - 修复点：使用分别初始化的 criterion
+            loss_major = self.criterion_major(major_logits, major_labels)
+            loss_detail = self.criterion_detail(detail_logits, detail_labels)
             
             # 加权组合
             loss = weight_major * loss_major + weight_detail * loss_detail
@@ -912,14 +729,7 @@ class Trainer:
         return metrics
     
     def validate(self) -> Dict[str, float]:
-        """
-        在验证集上评估模型
-        
-        支持标准分类和分层分类两种模式
-        
-        Returns:
-            包含验证指标的字典
-        """
+        """在验证集上评估模型"""
         if self.val_dataloader is None:
             return {}
         
@@ -1025,9 +835,9 @@ class Trainer:
                 major_logits = outputs['major_logits']
                 detail_logits = outputs['detail_logits']
                 
-                # 计算两级损失
-                loss_major = self.criterion(major_logits, major_labels)
-                loss_detail = self.criterion(detail_logits, detail_labels)
+                # 计算两级损失 - 修复点：使用分别初始化的 criterion
+                loss_major = self.criterion_major(major_logits, major_labels)
+                loss_detail = self.criterion_detail(detail_logits, detail_labels)
                 loss = weight_major * loss_major + weight_detail * loss_detail
                 
                 total_loss += loss.item()
@@ -1080,13 +890,7 @@ class Trainer:
         return metrics
     
     def save_checkpoint(self, epoch: int, is_best: bool = False):
-        """
-        保存模型 checkpoint
-        
-        Args:
-            epoch: epoch 编号
-            is_best: 是否为最佳模型
-        """
+        """保存模型 checkpoint"""
         checkpoint = {
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
@@ -1105,15 +909,7 @@ class Trainer:
             self.logger.log(f"💾 保存最佳模型: Epoch {epoch}")
     
     def load_checkpoint(self, checkpoint_path: Path) -> int:
-        """
-        加载模型 checkpoint
-        
-        Args:
-            checkpoint_path: checkpoint 文件路径
-        
-        Returns:
-            断点续训的 epoch 编号
-        """
+        """加载模型 checkpoint"""
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         
@@ -1136,20 +932,7 @@ class Trainer:
         debug: bool = False,
         resume_from: Optional[Path] = None,
     ) -> Dict:
-        """
-        完整的训练循环
-        
-        Args:
-            num_epochs: 训练轮数
-            learning_rate: 学习率
-            weight_decay: 权重衰减
-            patience: 早停耐心数（epoch）
-            debug: Debug 模式（小样本快速过拟合测试）
-            resume_from: 从指定的 checkpoint 断点续训
-        
-        Returns:
-            训练历史字典
-        """
+        """完整的训练循环"""
         # Debug 模式
         if debug:
             self.logger.print_header("开始 Overfit 测试 (Debug Mode)...")
@@ -1158,14 +941,21 @@ class Trainer:
         else:
             self.logger.print_header("开始训练")
         
-        # 初始化优化器和损失函数
+        # 初始化优化器
         self.optimizer = optim.Adam(
             self.model.parameters(),
             lr=learning_rate,
             weight_decay=weight_decay,
         )
         
-        self.criterion = WeightedCrossEntropyLoss(weight=self.class_weights)
+        # 初始化损失函数 - 修复点：区分分层模式
+        if self.is_hierarchical:
+            self.criterion_major = WeightedCrossEntropyLoss(weight=self.major_class_weights)
+            self.criterion_detail = WeightedCrossEntropyLoss(weight=self.detail_class_weights)
+            self.logger.log("已初始化分层损失函数 (Major & Detail)")
+        else:
+            self.criterion = WeightedCrossEntropyLoss(weight=self.class_weights)
+            self.logger.log("已初始化标准损失函数")
         
         self.logger.log(f"学习率: {learning_rate}")
         self.logger.log(f"权重衰减: {weight_decay}")
@@ -1248,17 +1038,7 @@ class Trainer:
         return self.history
     
     def test(self, test_loader=None) -> Dict[str, float]:
-        """
-        在测试集上评估模型
-        
-        支持标准分类和分层分类两种模式
-        
-        Args:
-            test_loader: 测试数据加载器（可选，若不提供则使用初始化时的）
-        
-        Returns:
-            测试指标
-        """
+        """在测试集上评估模型"""
         if test_loader is None:
             test_loader = self.test_dataloader
         
@@ -1323,6 +1103,22 @@ class Trainer:
         # 打印结果
         self.logger.log("\n📊 测试结果:")
         self.logger.log(f"  Accuracy: {metrics['accuracy']:.4f}")
+        self.logger.log(f"  Precision: {metrics['precision']:.4f}")
+        self.logger.log(f"  Recall: {metrics['recall']:.4f}")
+        self.logger.log(f"  F1 (Macro): {metrics.get('f1_macro', 0):.4f}")
+        self.logger.log(f"  F1 (Weighted): {metrics.get('f1_weighted', 0):.4f}")
+        self.logger.log(f"  IoU: {metrics['iou']:.4f}")
+        
+        # 混淆矩阵
+        cm = MetricsCalculator.compute_confusion_matrix(
+            np.array(all_predictions),
+            np.array(all_targets)
+        )
+        
+        # 保存混淆矩阵
+        cm_file = self.output_dir / 'confusion_matrix.npy'
+        np.save(cm_file, cm)
+        self.logger.log(f"💾 混淆矩阵已保存: {cm_file}")
         
         return metrics
     
@@ -1404,23 +1200,5 @@ class Trainer:
             'major_f1': major_metrics.get('f1_macro', 0.0),
             'detail_f1': detail_metrics.get('f1_macro', 0.0),
         }
-        
-        return metrics
-        self.logger.log(f"  Precision: {metrics['precision']:.4f}")
-        self.logger.log(f"  Recall: {metrics['recall']:.4f}")
-        self.logger.log(f"  F1 (Macro): {metrics['f1_macro']:.4f}")
-        self.logger.log(f"  F1 (Weighted): {metrics['f1_weighted']:.4f}")
-        self.logger.log(f"  IoU: {metrics['iou']:.4f}")
-        
-        # 混淆矩阵
-        cm = MetricsCalculator.compute_confusion_matrix(
-            np.array(all_predictions),
-            np.array(all_targets)
-        )
-        
-        # 保存混淆矩阵
-        cm_file = self.output_dir / 'confusion_matrix.npy'
-        np.save(cm_file, cm)
-        self.logger.log(f"💾 混淆矩阵已保存: {cm_file}")
         
         return metrics
