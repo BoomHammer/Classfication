@@ -1,5 +1,5 @@
 """
-trainer.py: 通用模型训练器
+trainer.py: 通用模型训练器 (集成学习率调度器版)
 
 支持指定训练目标（大类或小类）和标签映射。
 """
@@ -45,7 +45,7 @@ class Trainer:
         self.num_classes = num_classes
         self.target_key = target_key
         self.label_mapping = label_mapping
-        self.device = torch.device(device)
+        self.device = torch.device(device) if torch.cuda.is_available() else torch.device('cpu')
         self.verbose = verbose
         self.output_dir = Path(output_dir) if output_dir else Path('./experiments/outputs')
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -68,16 +68,11 @@ class Trainer:
         if isinstance(batch, dict):
             raw_labels = batch[self.target_key]
         else:
-            # 假设 tuple 格式最后是 label，这在现在的 dataset 中不太可能，主要是 dict
             raw_labels = batch[-1]
             
         raw_labels = raw_labels.to(self.device)
         
-        # 如果有映射表（用于训练小类子模型时，将全局ID映射回 0~N）
         if self.label_mapping is not None:
-            # 使用 torch.tensor 的 apply 或者 map 比较慢，建议预处理
-            # 这里为了通用性，在 GPU 上做 lookup
-            # 注意：这假设 label_mapping 覆盖了 batch 中所有出现的 label
             mapped_labels = torch.zeros_like(raw_labels)
             for global_id, local_id in self.label_mapping.items():
                 mapped_labels[raw_labels == global_id] = local_id
@@ -91,7 +86,6 @@ class Trainer:
         label_counts = np.zeros(self.num_classes)
         total = 0
         
-        # 遍历一遍数据
         for batch in tqdm(self.train_dataloader, desc="Stat Weights", leave=False):
             labels = self._get_labels_from_batch(batch).cpu().numpy()
             for l in labels:
@@ -117,19 +111,18 @@ class Trainer:
         
         pbar = tqdm(self.train_dataloader, desc=f"Ep {epoch} Train", leave=False)
         for batch in pbar:
-            # 1. 准备数据
             dynamic = batch['dynamic'].to(self.device)
             static = batch['static'].to(self.device)
-            labels = self._get_labels_from_batch(batch) # 获取映射后的标签
+            labels = self._get_labels_from_batch(batch)
             
-            # 2. 前向
+            # 前向
             outputs = self.model(dynamic, static)
             logits = outputs['logits']
             
-            # 3. 损失
+            # 损失
             loss = self.criterion(logits, labels)
             
-            # 4. 反向
+            # 反向
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
@@ -176,25 +169,53 @@ class Trainer:
         }
 
     def train(self, num_epochs=50, lr=1e-3, patience=10, weight_decay=1e-4):
+        """
+        执行训练循环
+        
+        新增：
+        1. 初始化 Scheduler
+        2. 在每个 Epoch 结束时 step Scheduler
+        3. 打印当前 Learning Rate
+        """
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        
+        # [新增] 初始化学习率调度器
+        # mode='min': 当监控指标(val_loss)不再下降时触发
+        # factor=0.5: 触发时学习率减半
+        # patience=3: 容忍 3 个 epoch 指标不改善
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer, mode='min', factor=0.5, patience=3, verbose=True
+        )
+        
         patience_counter = 0
         
         print(f"🚀 开始训练 (Epochs: {num_epochs}, Target: {self.target_key})")
+        print(f"   Scheduler: ReduceLROnPlateau (Patience=3, Factor=0.5)")
         
         for epoch in range(1, num_epochs + 1):
             train_metrics = self.train_epoch(epoch)
             val_metrics = self.validate()
             
-            print(f"Epoch {epoch}: Train Loss={train_metrics['loss']:.4f} Acc={train_metrics['accuracy']:.4f} | "
-                  f"Val Loss={val_metrics.get('loss',0):.4f} Acc={val_metrics.get('accuracy',0):.4f} F1={val_metrics.get('f1_macro',0):.4f}")
+            # 获取当前学习率用于打印
+            current_lr = self.optimizer.param_groups[0]['lr']
             
-            # 保存最佳
+            print(f"Epoch {epoch}: "
+                  f"Train Loss={train_metrics['loss']:.4f} Acc={train_metrics['accuracy']:.4f} | "
+                  f"Val Loss={val_metrics.get('loss',0):.4f} Acc={val_metrics.get('accuracy',0):.4f} F1={val_metrics.get('f1_macro',0):.4f} | "
+                  f"LR={current_lr:.1e}") # [新增] 显示LR
+            
+            # [新增] 更新学习率
+            # 这里监控 Val Loss，如果验证集 Loss 不下降，学习率就会降低
+            scheduler.step(val_metrics.get('loss', 0))
+            
+            # 保存最佳模型逻辑
             val_f1 = val_metrics.get('f1_macro', 0)
             if val_f1 > self.best_val_f1:
                 self.best_val_f1 = val_f1
                 self.best_epoch = epoch
                 patience_counter = 0
                 torch.save(self.model.state_dict(), self.output_dir / 'best_model.pth')
+                # print(f"   🌟 New Best F1: {val_f1:.4f}")
             else:
                 patience_counter += 1
                 

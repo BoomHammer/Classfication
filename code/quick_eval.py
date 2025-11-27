@@ -2,6 +2,14 @@
 """
 quick_eval.py: 分层分类模型验证脚本
 
+使用方式：
+1. 确保已安装所需的 Python 包。
+2. 在终端中运行以下命令：
+   ```
+   cd code
+   python quick_eval.py --run_dir ../experiments/outputs/XXXXXXXX_XXXX_EXP_2023_001
+   ```
+
 修复说明：
 强制使用本地的 config.yaml 而不是实验目录下的 config_used.yaml，
 以防止相对路径解析错误 (FileNotFoundError)。

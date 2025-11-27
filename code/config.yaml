@@ -50,10 +50,24 @@ model:
 
 # 4. 训练超参数 (Training Hyperparameters)
 train:
-  seed: 42                                        # 随机种子，保证可复现
-  batch_size: 32
-  epochs: 300
-  learning_rate: 1e-3
-  num_workers: 4                                  # 数据加载线程数
-  device: "cuda"                                  # 训练设备：'cuda' 或 'cpu'
-  patience: 30                                    # 早停策略：若在若干个epoch内验证集损失不再下降，则停止训练
+  # 通用配置
+  seed: 42
+  num_workers: 16          # 数据加载线程数，根据CPU核数调整
+  split_ratio: [0.7, 0.15, 0.15] # 训练/验证/测试比例
+
+  # === 大类模型专用超参数 ===
+  major_model:
+    epochs: 50            # 大类通常数据多，训练轮数可以适中
+    batch_size: 512        # 显存允许的情况下尽量大
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    patience: 10          # 早停耐心值
+
+  # === 小类模型专用超参数 ===
+  detail_model:
+    epochs: 50            # 小类可能需要更多轮次来拟合细节
+    batch_size: 128        # 某些小类样本少，Batch Size 不宜过大
+    learning_rate: 0.0005 # 小类微调时学习率可以稍低
+    weight_decay: 0.0001
+    patience: 15          # 给更多耐心防止过早停止
+    min_samples: 5        # 训练所需的最小样本数，少于此数跳过训练
