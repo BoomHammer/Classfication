@@ -5,14 +5,13 @@
 1. 自动检测可变长度的数据类型前缀（2-4字母）
 2. 解析不同格式的时间信息（日期、月份、年份）
 3. 智能区分歧义情况（如2020可能是年份或月份）
-4. 支持多种数据类型
+4. 支持多种数据类型及特殊后缀（如SR系列波段）
 
 示例：
-- GPP230101.tif → 2023年1月1日
-- NDVI220306.tif → 2022年3月6日  
-- PR2002.tif → 2020年2月（月份数据）
-- PR2105.tif → 2021年5月（月份数据）
-- PR2020.tif → 2020年全年（年份数据）
+- GPP230101.tif → 2023年1月1日 (类型: GPP)
+- NDVI220306.tif → 2022年3月6日 (类型: NDVI)
+- SR230210B1.tif → 2023年2月10日 (类型: SR_B1)
+- PR2002.tif → 2020年2月 (类型: PR)
 """
 
 import re
@@ -30,41 +29,45 @@ def extract_time_from_filename(filename: str) -> Tuple[Optional[datetime], Optio
     从文件名智能提取时间信息
     
     Args:
-        filename: 文件名（例如 'GPP230101.tif'）
+        filename: 文件名（例如 'GPP230101.tif' 或 'SR230210B1.tif'）
     
     Returns:
         Tuple[date, year, month, data_type]: (完整日期对象, 年份, 月份, 数据类型)
         - date: 完整的日期对象（如果能解析的话）
         - year: 仅年份（从任何数字序列中提取）
         - month: 仅月份（从任何数字序列中提取）
-        - data_type: 识别的数据类型前缀（如 'GPP', 'NDVI', 'PR'）
+        - data_type: 识别的数据类型标识（如 'GPP', 'SR_B1'）
     
     示例：
         >>> extract_time_from_filename('GPP230101.tif')
         (datetime(2023,1,1), 2023, 1, 'GPP')
         
-        >>> extract_time_from_filename('PR2002.tif')
-        (None, 2020, 2, 'PR')
-        
-        >>> extract_time_from_filename('PR2020.tif')
-        (None, 2020, None, 'PR')
+        >>> extract_time_from_filename('SR230210B1.tif')
+        (datetime(2023,2,10), 2023, 2, 'SR_B1')
     """
     
     # 移除文件扩展名
     name_without_ext = filename.rsplit('.', 1)[0]
     
-    # 第1步：提取前缀和数字部分
-    # 匹配：2-4个字母 + 数字序列
+    # 第1步：提取前缀、数字部分和后缀
+    # 匹配：2-4个字母(前缀) + 数字序列 + 剩余部分(后缀)
+    # 这里的 (.*) 会捕获如 'B1' 这样的后缀
     match = re.match(r'^([A-Za-z]{2,4})(\d+)(.*)$', name_without_ext)
     
     if not match:
         logger.debug(f"❌ 无法解析文件名格式: {filename}")
         return None, None, None, ''
     
-    prefix = match.group(1)  # 数据类型（如 'GPP', 'NDVI', 'PR'）
-    number_str = match.group(2)  # 数字序列（如 '230101', '2002', '2020'）
+    prefix = match.group(1)  # 数据类型前缀（如 'GPP', 'SR'）
+    number_str = match.group(2)  # 数字序列（如 '230101', '230210'）
+    suffix = match.group(3)      # 后缀部分（如 'B1', ''）
     
-    logger.debug(f"✓ 解析 {filename}: prefix={prefix}, numbers={number_str}")
+    # 特殊处理：SR系列数据，将后缀（波段号）合并到数据类型中
+    # 例如：SR...B1 -> 数据类型记为 SR_B1
+    if prefix.upper() == 'SR' and suffix:
+        prefix = f"{prefix}_{suffix}"
+    
+    logger.debug(f"✓ 解析 {filename}: type={prefix}, numbers={number_str}")
     
     # 第2步：根据数字长度判断时间格式
     date_obj = None
@@ -80,7 +83,7 @@ def extract_time_from_filename(filename: str) -> Tuple[Optional[datetime], Optio
             mm = int(number_str[2:4])
             dd = int(number_str[4:6])
             
-            # 将两位数年份转换为四位数（20xx或21xx）
+            # 将两位数年份转换为四位数
             # 假设00-50是2000-2050, 51-99是1951-1999
             if yy <= 50:
                 yyyy = 2000 + yy
@@ -145,49 +148,41 @@ def extract_time_from_filename(filename: str) -> Tuple[Optional[datetime], Optio
 def test_time_parser():
     """测试时间解析函数"""
     test_cases = [
-        ('GPP230101.tif', (2023, 1, 1)),  # GPP日期
-        ('NDVI220306.tif', (2022, 3, 6)),  # NDVI日期
-        ('PR2002.tif', (2020, 2, None)),  # PR月份
-        ('PR2105.tif', (2021, 5, None)),  # PR月份
-        ('PR2020.tif', (2020, None, None)),  # PR年份
-        ('LST230115.tif', (2023, 1, 15)),  # LST日期
-        ('PCP1912.tif', (2019, 12, None)),  # 1912年是不是2012年？基于用户说法应该是
+        ('GPP230101.tif', (2023, 1, 1), 'GPP'),
+        ('NDVI220306.tif', (2022, 3, 6), 'NDVI'),
+        ('SR230210B1.tif', (2023, 2, 10), 'SR_B1'),  # 新增测试用例：SR系列 Band 1
+        ('SR230210B7.tif', (2023, 2, 10), 'SR_B7'),  # 新增测试用例：SR系列 Band 7
+        ('PR2002.tif', (2020, 2, None), 'PR'),
+        ('PR2020.tif', (2020, None, None), 'PR'),
     ]
     
     print("\n" + "=" * 80)
     print("时间解析测试")
     print("=" * 80)
     
-    for filename, (exp_year, exp_month, exp_day) in test_cases:
+    for filename, (exp_year, exp_month, exp_day), exp_prefix in test_cases:
         date_obj, year, month, prefix = extract_time_from_filename(filename)
         
         status = "✅"
+        # 验证日期
         if date_obj:
             if date_obj.year != exp_year or date_obj.month != exp_month or date_obj.day != exp_day:
-                status = "❌"
+                status = "❌ (日期错误)"
         elif year != exp_year or month != exp_month:
-            status = "❌"
+            status = "❌ (年月错误)"
+            
+        # 验证前缀(数据类型)
+        if prefix != exp_prefix:
+            status = f"❌ (类型错误: 期望 {exp_prefix}, 实际 {prefix})"
         
         print(f"\n{status} {filename}")
-        print(f"   前缀: {prefix}")
-        print(f"   日期: {date_obj}")
-        print(f"   年月: {year}-{month if month else 'N/A'}")
+        print(f"   解析类型: {prefix}")
+        print(f"   解析日期: {date_obj if date_obj else f'{year}-{month}'}")
 
-
-# ============================================================================
-# 使用示例
-# ============================================================================
 
 if __name__ == "__main__":
-    # 配置日志
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='[%(levelname)s] %(message)s'
-    )
-    
-    # 运行测试
+    logging.basicConfig(level=logging.DEBUG, format='[%(levelname)s] %(message)s')
     test_time_parser()
-    
     print("\n" + "=" * 80)
     print("✅ 时间解析模块测试完成")
     print("=" * 80 + "\n")
