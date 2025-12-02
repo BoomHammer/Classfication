@@ -8,11 +8,7 @@ quick_eval.py: 分层分类模型验证脚本
    ```
    cd code
    python quick_eval.py --run_dir ../experiments/outputs/XXXXXXXX_XXXX_EXP_2023_001
-   ```
-
-修复说明：
-强制使用本地的 config.yaml 而不是实验目录下的 config_used.yaml，
-以防止相对路径解析错误 (FileNotFoundError)。
+   ```。
 """
 print("💡 脚本正在启动...")
 
@@ -32,7 +28,7 @@ from sklearn.metrics import accuracy_score, classification_report
 sys.path.insert(0, str(Path(__file__).parent))
 from config_manager import ConfigManager
 from label_encoder import LabelEncoder
-from raster_crawler import RasterCrawler
+# from raster_crawler import RasterCrawler # [移除] 不需要爬虫
 from point_timeseries_dataset import PointTimeSeriesDataset, collate_fn
 from model_architecture import DualStreamSpatio_TemporalFusionNetwork
 
@@ -89,7 +85,7 @@ def load_detail_models(run_dir, hierarchical_map, input_channels, device):
         mapping_path = model_folder / "class_mapping.json"
         
         if not model_path.exists() or not mapping_path.exists():
-            print(f"  ⚠️  警告: 未找到大类 {major_name} 的模型文件，跳过。")
+            # print(f"  ⚠️  警告: 未找到大类 {major_name} 的模型文件，跳过。")
             continue
             
         # 加载映射配置
@@ -156,7 +152,7 @@ def predict_batch(dynamic, static, major_model, detail_models, detail_mappings, 
             detail_preds_global[indices] = target_global_id
             
         else:
-            # C. 异常情况
+            # C. 异常情况 (未知大类或无模型)
             detail_preds_global[indices] = -1 
             
     return major_preds, detail_preds_global
@@ -173,70 +169,43 @@ def main():
         print(f"❌ 目录不存在: {run_dir}")
         return
 
-    # =========================================================
-    # 关键修复: 始终加载本地的 config.yaml
-    # =========================================================
-    # 假设 evaluate.py 和 config.yaml 在同一个目录 (code/)
+    # 1. 加载本地配置
     local_config_path = Path(__file__).parent / 'config.yaml'
-    
     if not local_config_path.exists():
         print(f"❌ 找不到本地配置文件: {local_config_path}")
-        print("请确保脚本运行在 code 目录下，且 config.yaml 存在。")
         return
         
     print(f"📋 加载配置文件: {local_config_path}")
-    # 使用本地路径初始化，这样相对路径 (../data) 才会解析正确
     config = ConfigManager(str(local_config_path))
     
-    # 2. 准备数据集
-    print("🔄 初始化数据加载器...")
+    # 2. 准备数据集 (核心修复部分)
+    print("🔄 初始化数据加载器 (读取预处理数据)...")
     encoder = LabelEncoder(config=config)
     
-    dynamic_crawler = RasterCrawler(
-        config=config, 
-        raster_dir=config.get_resolved_path('dynamic_images_dir'), 
-        filename_pattern=config.get('data_specs.raster_crawler.filename_pattern'),
-        file_extensions=['.tif']
-    )
-    static_crawler = RasterCrawler(
-        config=config, 
-        raster_dir=config.get_resolved_path('static_images_dir'), 
-        filename_pattern=config.get('data_specs.raster_crawler.filename_pattern'),
-        file_extensions=['.tif']
-    )
-    
-    # 自动检测通道数
+    # [修复] 移除 Crawler 初始化，直接使用 Dataset 加载 .pt 文件
     try:
-        dyn_ch = dynamic_crawler.detect_num_channels()['most_common']
-        sta_ch = static_crawler.detect_num_channels()['most_common']
-    except Exception as e:
-        print(f"⚠️ 无法自动检测通道数，尝试读取 detected_parameters.json")
-        # 尝试从运行目录读取
-        param_file = run_dir / 'detected_parameters.json'
-        if param_file.exists():
-            with open(param_file, 'r') as f:
-                params = json.load(f)
-                dyn_ch = params.get('dynamic_channels', 4)
-                sta_ch = params.get('static_channels', 1)
-        else:
-            print("❌ 无法确定输入通道数，请检查数据路径。")
-            return
-
-    input_channels = {'dynamic': dyn_ch, 'static': sta_ch}
+        dataset = PointTimeSeriesDataset(
+            config=config, 
+            encoder=encoder, 
+            crawler=None, # 不需要爬虫
+            split=args.split,
+            # 注意：这里使用默认 split_ratio 以匹配 main.py 的行为，确保索引一致
+        )
+    except FileNotFoundError as e:
+        print(f"❌ 错误: {e}")
+        print("💡 请确保已运行 preprocess_dataset.py 生成了数据。")
+        return
     
-    dataset = PointTimeSeriesDataset(
-        config=config, 
-        encoder=encoder, 
-        dynamic_crawler=dynamic_crawler, 
-        static_crawler=static_crawler, 
-        split=args.split, 
-        cache_metadata=True, 
-        verbose=False
-    )
-    
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0) # Windows下设为0更安全
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0)
     
     print(f"📊 验证集样本数: {len(dataset)}")
+    
+    # [修复] 从 Dataset 直接获取通道数
+    dyn_ch = dataset.num_channels
+    sta_ch = 1 # 静态数据目前是占位符
+    print(f"ℹ️  检测到通道数: Dynamic={dyn_ch}, Static={sta_ch}")
+    
+    input_channels = {'dynamic': dyn_ch, 'static': sta_ch}
     
     # 3. 加载模型
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -252,8 +221,6 @@ def main():
         )
     except Exception as e:
         print(f"❌ 模型加载失败: {e}")
-        import traceback
-        traceback.print_exc()
         return
 
     # 4. 执行推理
@@ -266,8 +233,12 @@ def main():
         static = batch['static'].to(device)
         major_true = batch['major_label'].to(device)
         detail_true = batch['detail_label'].to(device)
-        # 获取ID, 兼容不同 dataset 实现
-        ids = batch.get('id', torch.zeros(len(major_true))).cpu().numpy()
+        
+        # 处理 ID (兼容不同 dataset 返回格式)
+        if 'metadata' in batch and isinstance(batch['metadata'], list):
+             ids = [m['sample_id'] for m in batch['metadata']]
+        else:
+             ids = range(len(major_true)) # Fallback
         
         major_preds, detail_preds = predict_batch(
             dynamic, static, 
@@ -275,7 +246,7 @@ def main():
             device
         )
         
-        for i in range(len(ids)):
+        for i in range(len(major_true)):
             all_results.append({
                 'id': ids[i],
                 'major_true': major_true[i].item(),
@@ -336,6 +307,7 @@ def main():
             'detail_true_name', 'detail_pred_name', 'detail_correct',
             'major_true', 'major_pred', 'detail_true', 'detail_pred']
     df_res[cols].to_csv(output_csv, index=False, encoding='utf-8-sig')
+    print(f"📁 结果已保存至: {output_csv}")
 
 if __name__ == "__main__":
     main()
