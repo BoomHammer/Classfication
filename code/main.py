@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 """
-main.py: “先大类，后小类” 分层训练流水线 (适配 Super-Channel 策略二)
-
-【核心变更】
-1. 移除了独立的 static_crawler，统一使用新的 RasterCrawler 进行多源异构数据管理。
-2. 适配了新的 PointTimeSeriesDataset 接口 (基于 Super-Channel 对齐)。
-3. 适配了新的 StatsCalculator 接口 (基于变量名聚合)。
+main.py: “先大类，后小类” 分层训练流水线 (修复通道检测版)
 """
 
 import sys
@@ -31,14 +26,9 @@ def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(message)s')
 
 def get_subset_indices(dataset, filter_func):
-    """
-    辅助函数：遍历数据集，返回满足 filter_func 条件的局部索引列表。
-    """
+    """辅助函数：遍历数据集，返回满足条件的局部索引列表"""
     indices = []
-    # 注意：这里假设 encoder.get_dataframe() 返回的顺序与 dataset.indices 的全局顺序一致
-    # dataset.points_df 是在 init 时 copy 过来的，所以直接用 dataset.points_df 更安全
     df = dataset.points_df 
-    
     for local_idx, global_idx in enumerate(dataset.indices):
         row = df.iloc[global_idx]
         if filter_func(row):
@@ -48,7 +38,7 @@ def get_subset_indices(dataset, filter_func):
 def main():
     setup_logging()
     print("="*60)
-    print("🚀 启动分层训练流水线 (Super-Channel 融合版)")
+    print("🚀 启动分层训练流水线 (Auto-Channel Detect)")
     print("="*60)
 
     # 1. 加载配置
@@ -56,7 +46,7 @@ def main():
     output_dir = config.get_experiment_output_dir()
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # 获取超参数 (带默认值)
+    # 获取超参数
     major_cfg = config.get('train.major_model', {
         'epochs': 30, 'batch_size': 32, 'learning_rate': 1e-3, 'weight_decay': 1e-4, 'patience': 10
     })
@@ -64,61 +54,50 @@ def main():
         'epochs': 40, 'batch_size': 16, 'learning_rate': 1e-3, 'weight_decay': 1e-4, 'patience': 10, 'min_samples': 5
     })
     common_cfg = {
-        'num_workers': config.get('train.num_workers', 0), # Windows调试建议设为0
+        'num_workers': config.get('train.num_workers', 0),
         'pin_memory': True if torch.cuda.is_available() else False
     }
 
-    print("\n📋 训练配置:")
-    print(f"   [大类] Epochs: {major_cfg['epochs']}, BS: {major_cfg['batch_size']}, LR: {major_cfg['learning_rate']}")
-    print(f"   [小类] Epochs: {detail_cfg['epochs']}, BS: {detail_cfg['batch_size']}, LR: {detail_cfg['learning_rate']}")
-
-    # 2. 初始化核心组件
+    # 2. 初始化组件
     encoder = LabelEncoder(config=config)
     
-    # [说明] 训练阶段不需要 crawler，因为直接读取预处理后的 .pt 文件
-    # 但如果缺少统计文件，下面会临时创建一个 crawler 来计算
-    crawler = None 
-
-    # 3. 自动归一化计算 (如果不存在)
+    # 3. 自动归一化计算 (仅当文件不存在时)
     stats_file = output_dir / 'normalization_stats.json'
     if not stats_file.exists():
-        print("\n📊 未检测到统计文件，正在从原始 TIFF 计算全局统计量...")
-        print("   (这一步可能需要几分钟，计算完成后将永久保存)")
-        
-        # [核心修复] 临时初始化爬虫，仅用于统计计算
-        # 必须传入 config 才能找到 dynamic_images_dir
-        temp_crawler = RasterCrawler(config=config)
-        
+        # 检查是否在之前的运行目录中有（可选优化，这里直接从tiff计算更稳）
+        print("\n📊 正在计算全局统计量 (动态+静态)...")
+        dyn_crawler = RasterCrawler(config=config)
+        static_crawler = RasterCrawler(
+            config=config, 
+            raster_dir=config.get_resolved_path('static_images_dir'),
+            filename_pattern='.*',
+            file_extensions=('.tif', '.tiff')
+        )
         calculator = StatsCalculator(config=config)
-        # 使用 temp_crawler 进行计算
-        calculator.compute_global_stats(temp_crawler, sampling_rate=0.2) 
-        calculator.save_stats('normalization_stats.json')
-        
-        print("✅ 统计量计算完成并保存。")
-        # 释放内存
-        del temp_crawler
-        del calculator
-    else:
-        print(f"\n✅ 检测到统计文件: {stats_file.name}，跳过计算。")
+        calculator.compute_all_stats(dyn_crawler, static_crawler, sampling_rate=0.2) 
+        print("✅ 统计量计算完成。")
+        del dyn_crawler, static_crawler, calculator
 
-    # 4. 初始化全量数据集
+    # 4. 加载数据集
     print("\n📦 加载预处理数据集...")
     try:
-        full_train_dataset = PointTimeSeriesDataset(config, encoder, crawler=None, split='train')
-        full_val_dataset = PointTimeSeriesDataset(config, encoder, crawler=None, split='val')
+        full_train_dataset = PointTimeSeriesDataset(config, encoder, split='train')
+        full_val_dataset = PointTimeSeriesDataset(config, encoder, split='val')
     except FileNotFoundError as e:
         print(f"\n❌ 错误: {e}")
         print("💡 请先运行: python code/preprocess_dataset.py")
         sys.exit(1)
     
-    # 获取通道数信息
+    # 5. [关键修改] 直接从数据集获取通道参数，不再依赖可能丢失的json文件
     dyn_ch = full_train_dataset.num_channels
-    # [注意] 目前 PointTimeSeriesDataset 对静态数据使用占位符 (zeros)，通道数为 1
-    # 如果后续你完善了静态数据逻辑，这里需要修改
-    sta_ch = 1 
+    sta_ch = full_train_dataset.num_static_channels
     
-    print(f"   动态通道数: {dyn_ch} (包含变量: {list(full_train_dataset.channel_map.keys())})")
-    print(f"   静态通道数: {sta_ch} (Placeholder)")
+    print(f"   动态通道数: {dyn_ch}")
+    print(f"   静态通道数: {sta_ch}")
+    
+    if sta_ch == 0:
+        print("⚠️ 警告：检测到静态通道数为 0，请检查 preprocess_dataset.py 是否正确读取了静态数据。")
+        # 如果确实是0，为了防止模型报错，可能需要特殊处理，但这里先让它跑，看是否报错
 
     major_map = encoder.get_major_labels_map()
     hierarchical_map = encoder.get_hierarchical_map()
@@ -137,25 +116,18 @@ def main():
         num_classes=len(major_map)
     )
     
-    major_loader_args = {
-        'batch_size': major_cfg['batch_size'],
-        'num_workers': common_cfg['num_workers'],
-        'pin_memory': common_cfg['pin_memory'],
-        'collate_fn': collate_fn
-    }
-    
     major_trainer = Trainer(
         model=major_model,
-        train_dataloader=DataLoader(full_train_dataset, shuffle=True, **major_loader_args),
-        val_dataloader=DataLoader(full_val_dataset, shuffle=False, **major_loader_args),
+        train_dataloader=DataLoader(full_train_dataset, shuffle=True, batch_size=major_cfg['batch_size'], collate_fn=collate_fn, **common_cfg),
+        val_dataloader=DataLoader(full_val_dataset, shuffle=False, batch_size=major_cfg['batch_size'], collate_fn=collate_fn, **common_cfg),
         num_classes=len(major_map),
-        target_key='major_label', 
+        target_key='major_label',
         output_dir=major_model_dir
     )
     
     major_trainer.train(
         num_epochs=major_cfg['epochs'],
-        lr=major_cfg['learning_rate'],
+        learning_rate=major_cfg['learning_rate'],
         weight_decay=major_cfg['weight_decay'],
         patience=major_cfg['patience']
     )
@@ -168,13 +140,6 @@ def main():
     print("🏗️  [阶段 B] 训练各分支小类模型")
     print("="*60)
 
-    detail_loader_args = {
-        'batch_size': detail_cfg['batch_size'],
-        'num_workers': common_cfg['num_workers'],
-        'pin_memory': common_cfg['pin_memory'],
-        'collate_fn': collate_fn
-    }
-
     for major_name, major_id in major_map.items():
         print(f"\n👉 处理大类: {major_name} (ID: {major_id})")
         
@@ -186,12 +151,10 @@ def main():
             print(f"   ⚠️ 该大类仅有 {num_sub_classes} 个小类，跳过。")
             continue
 
-        # 映射构建
         sorted_details = sorted(detail_classes_map.items(), key=lambda x: x[1])
         global_to_local = {gid: lidx for lidx, (_, gid) in enumerate(sorted_details)}
         local_to_global = {lidx: gid for lidx, (_, gid) in enumerate(sorted_details)}
             
-        # 筛选子集
         train_indices = get_subset_indices(full_train_dataset, lambda row: row['major_label'] == major_id)
         val_indices = get_subset_indices(full_val_dataset, lambda row: row['major_label'] == major_id)
         
@@ -213,8 +176,8 @@ def main():
         
         sub_trainer = Trainer(
             model=sub_model,
-            train_dataloader=DataLoader(train_subset, shuffle=True, **detail_loader_args),
-            val_dataloader=DataLoader(val_subset, shuffle=False, **detail_loader_args),
+            train_dataloader=DataLoader(train_subset, shuffle=True, batch_size=detail_cfg['batch_size'], collate_fn=collate_fn, **common_cfg),
+            val_dataloader=DataLoader(val_subset, shuffle=False, batch_size=detail_cfg['batch_size'], collate_fn=collate_fn, **common_cfg),
             num_classes=num_sub_classes,
             target_key='detail_label',
             label_mapping=global_to_local,
@@ -223,12 +186,11 @@ def main():
         
         sub_trainer.train(
             num_epochs=detail_cfg['epochs'],
-            lr=detail_cfg['learning_rate'],
+            learning_rate=detail_cfg['learning_rate'],
             weight_decay=detail_cfg['weight_decay'],
             patience=detail_cfg['patience']
         )
         
-        # 保存映射
         with open(sub_model_dir / 'class_mapping.json', 'w', encoding='utf-8') as f:
             json.dump({
                 'major_class': major_name,

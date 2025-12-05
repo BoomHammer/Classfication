@@ -1,230 +1,206 @@
-"""
-trainer.py: 通用模型训练器 (集成学习率调度器版)
-
-支持指定训练目标（大类或小类）和标签映射。
-"""
-
-import json
-import logging
-import sys
-import time
-from pathlib import Path
-from typing import Dict, Optional, List, Any
-
-import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from pathlib import Path
+import logging
 from tqdm import tqdm
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
+import numpy as np
+from sklearn.metrics import classification_report, f1_score, confusion_matrix
 
 class Trainer:
-    """
-    通用训练器，用于训练任意一个 DualStreamSpatio_TemporalFusionNetwork 实例。
-    """
-    
     def __init__(
         self,
         model: nn.Module,
         train_dataloader: DataLoader,
-        val_dataloader: Optional[DataLoader] = None,
-        test_dataloader: Optional[DataLoader] = None,
+        val_dataloader: DataLoader,
+        test_dataloader: DataLoader = None,
         num_classes: int = 2,
-        target_key: str = 'label',       # 关键参数：告诉 Trainer 从 batch 中取哪个作为标签
-        label_mapping: Dict[int, int] = None, # 关键参数：用于将全局ID映射为本地ID (0 ~ num_classes-1)
         device: str = 'cuda',
-        output_dir: Optional[Path] = None,
+        output_dir: str = './output',
+        class_weights: torch.Tensor = None,
+        target_key: str = 'label',
         verbose: bool = True,
+        label_mapping: dict = None
     ):
-        self.model = model
-        self.train_dataloader = train_dataloader
-        self.val_dataloader = val_dataloader
-        self.test_dataloader = test_dataloader
+        self.model = model.to(device)
+        self.train_loader = train_dataloader
+        self.val_loader = val_dataloader
+        self.test_loader = test_dataloader
         self.num_classes = num_classes
+        self.device = device
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.verbose = verbose
+        self.logger = logging.getLogger(__name__)
         self.target_key = target_key
         self.label_mapping = label_mapping
-        self.device = torch.device(device) if torch.cuda.is_available() else torch.device('cpu')
-        self.verbose = verbose
-        self.output_dir = Path(output_dir) if output_dir else Path('./experiments/outputs')
-        self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        self.model = self.model.to(self.device)
-        
-        # 计算权重时需要考虑映射
-        self.class_weights = self._compute_class_weights()
-        self.criterion = nn.CrossEntropyLoss(weight=self.class_weights)
-        
-        self.best_val_f1 = -np.inf
-        self.best_epoch = 0
-        
-        self.logger = logging.getLogger(__name__)
-        if not self.logger.handlers:
-            logging.basicConfig(level=logging.INFO)
-
-    def _get_labels_from_batch(self, batch):
-        """辅助函数：从 batch 中提取标签并应用映射"""
-        if isinstance(batch, dict):
-            raw_labels = batch[self.target_key]
+        if class_weights is not None:
+            self.criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
         else:
-            raw_labels = batch[-1]
+            self.criterion = nn.CrossEntropyLoss()
             
-        raw_labels = raw_labels.to(self.device)
-        
-        if self.label_mapping is not None:
-            mapped_labels = torch.zeros_like(raw_labels)
-            for global_id, local_id in self.label_mapping.items():
-                mapped_labels[raw_labels == global_id] = local_id
-            return mapped_labels
-        
-        return raw_labels
+        # [修复] 使用 torch.amp.GradScaler 替代 torch.cuda.amp.GradScaler
+        self.scaler = torch.amp.GradScaler('cuda')
+        self.optimizer = None
+        self.best_val_f1 = 0.0
+        self.best_epoch = 0
+        self.history = {'train_loss': [], 'val_loss': [], 'val_acc': [], 'val_f1': []}
 
-    def _compute_class_weights(self):
-        """计算类别权重"""
-        print(f"⚖️  正在计算类别权重 (Target: {self.target_key})...")
-        label_counts = np.zeros(self.num_classes)
-        total = 0
-        
-        for batch in tqdm(self.train_dataloader, desc="Stat Weights", leave=False):
-            labels = self._get_labels_from_batch(batch).cpu().numpy()
-            for l in labels:
-                if 0 <= l < self.num_classes:
-                    label_counts[l] += 1
-                    total += 1
-        
-        weights = np.zeros(self.num_classes)
-        for c in range(self.num_classes):
-            if label_counts[c] > 0:
-                weights[c] = total / (self.num_classes * label_counts[c])
-            else:
-                weights[c] = 1.0
-        
-        # 归一化
-        weights = weights / weights.mean()
-        return torch.from_numpy(weights).float().to(self.device)
+    def mixup_data(self, x_dyn, x_sta, y, alpha=0.4):
+        if alpha > 0:
+            lam = np.random.beta(alpha, alpha)
+        else:
+            lam = 1
+        batch_size = x_dyn.size(0)
+        index = torch.randperm(batch_size).to(self.device)
+        mixed_dyn = lam * x_dyn + (1 - lam) * x_dyn[index, :]
+        mixed_sta = lam * x_sta + (1 - lam) * x_sta[index, :]
+        y_a, y_b = y, y[index]
+        return mixed_dyn, mixed_sta, y_a, y_b, lam
 
-    def train_epoch(self, epoch):
-        self.model.train()
-        total_loss = 0
-        all_preds, all_targets = [], []
+    def _get_labels(self, batch):
+        labels = batch[self.target_key].to(self.device)
+        if self.label_mapping:
+            cpu_labels = labels.cpu().numpy()
+            local_labels = np.array([self.label_mapping.get(x, 0) for x in cpu_labels])
+            labels = torch.from_numpy(local_labels).to(self.device).long()
+        return labels
+
+    def train(self, num_epochs=50, learning_rate=1e-3, weight_decay=1e-4, patience=10, debug=False, resume_from=None, accumulation_steps=1):
+        self.optimizer = optim.AdamW(self.model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         
-        pbar = tqdm(self.train_dataloader, desc=f"Ep {epoch} Train", leave=False)
-        for batch in pbar:
-            dynamic = batch['dynamic'].to(self.device)
-            static = batch['static'].to(self.device)
-            labels = self._get_labels_from_batch(batch)
+        start_epoch = 0
+        if resume_from and resume_from.exists():
+            checkpoint = torch.load(resume_from)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            start_epoch = checkpoint['epoch'] + 1
+            self.logger.info(f"🔄 从 Epoch {start_epoch} 恢复训练")
+
+        no_improve_count = 0
+        
+        for epoch in range(start_epoch, num_epochs):
+            self.model.train()
+            train_loss = 0.0
             
-            # 前向
-            outputs = self.model(dynamic, static)
-            logits = outputs['logits']
-            
-            # 损失
-            loss = self.criterion(logits, labels)
-            
-            # 反向
+            pbar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{num_epochs}", leave=False)
             self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
             
-            total_loss += loss.item()
-            preds = torch.argmax(logits, dim=1)
-            all_preds.extend(preds.cpu().numpy())
-            all_targets.extend(labels.cpu().numpy())
+            for i, batch in enumerate(pbar):
+                if not batch: continue
+                
+                dyn = batch['dynamic'].to(self.device)
+                sta = batch['static'].to(self.device)
+                labels = self._get_labels(batch)
+                
+                if not debug and np.random.rand() < 0.5:
+                    dyn, sta, targets_a, targets_b, lam = self.mixup_data(dyn, sta, labels)
+                    # [修复] 使用 torch.amp.autocast
+                    with torch.amp.autocast('cuda'):
+                        outputs = self.model(dyn, sta)
+                        loss = lam * self.criterion(outputs['logits'], targets_a) + (1 - lam) * self.criterion(outputs['logits'], targets_b)
+                else:
+                    with torch.amp.autocast('cuda'):
+                        outputs = self.model(dyn, sta)
+                        loss = self.criterion(outputs['logits'], labels)
+                
+                loss = loss / accumulation_steps
+                self.scaler.scale(loss).backward()
+                
+                if (i + 1) % accumulation_steps == 0:
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                    self.optimizer.zero_grad()
+                
+                train_loss += loss.item() * accumulation_steps
+                pbar.set_postfix({'loss': f"{loss.item() * accumulation_steps:.4f}"})
+                
+                if debug and i >= 5: break
             
-            pbar.set_postfix({'loss': f"{loss.item():.4f}"})
+            avg_train_loss = train_loss / len(self.train_loader)
+            val_metrics = self.evaluate(self.val_loader)
             
-        metrics = self._compute_metrics(all_preds, all_targets)
-        metrics['loss'] = total_loss / len(self.train_dataloader)
-        return metrics
+            self.history['train_loss'].append(avg_train_loss)
+            self.history['val_loss'].append(val_metrics['loss'])
+            self.history['val_acc'].append(val_metrics['accuracy'])
+            self.history['val_f1'].append(val_metrics['f1_macro'])
+            
+            if self.verbose:
+                print(f"Epoch {epoch+1}: Train Loss={avg_train_loss:.4f}, Val Loss={val_metrics['loss']:.4f}, Val Acc={val_metrics['accuracy']:.4f}, Val F1={val_metrics['f1_macro']:.4f}")
+            
+            if val_metrics['f1_macro'] > self.best_val_f1:
+                self.best_val_f1 = val_metrics['f1_macro']
+                self.best_epoch = epoch + 1
+                no_improve_count = 0
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'best_f1': self.best_val_f1
+                }, self.output_dir / "best_model.pth")
+            else:
+                no_improve_count += 1
+                
+            if no_improve_count >= patience:
+                self.logger.info(f"🛑 Early stopping at epoch {epoch+1}")
+                break
+                
+        return self.history
 
-    def validate(self):
-        if not self.val_dataloader: return {}
+    def evaluate(self, dataloader):
         self.model.eval()
-        total_loss = 0
-        all_preds, all_targets = [], []
+        total_loss = 0.0
+        all_preds = []
+        all_labels = []
         
         with torch.no_grad():
-            for batch in tqdm(self.val_dataloader, desc="Val", leave=False):
-                dynamic = batch['dynamic'].to(self.device)
-                static = batch['static'].to(self.device)
-                labels = self._get_labels_from_batch(batch)
+            for batch in dataloader:
+                if not batch: continue
+                dyn = batch['dynamic'].to(self.device)
+                sta = batch['static'].to(self.device)
+                labels = self._get_labels(batch)
                 
-                outputs = self.model(dynamic, static)
+                outputs = self.model(dyn, sta)
                 loss = self.criterion(outputs['logits'], labels)
-                
                 total_loss += loss.item()
-                preds = torch.argmax(outputs['logits'], dim=1)
-                all_preds.extend(preds.cpu().numpy())
-                all_targets.extend(labels.cpu().numpy())
-        
-        metrics = self._compute_metrics(all_preds, all_targets)
-        metrics['loss'] = total_loss / len(self.val_dataloader)
-        return metrics
-
-    def _compute_metrics(self, preds, targets):
-        return {
-            'accuracy': accuracy_score(targets, preds),
-            'f1_macro': f1_score(targets, preds, average='macro', zero_division=0)
-        }
-
-    def train(self, num_epochs=50, lr=1e-3, patience=10, weight_decay=1e-4):
-        """
-        执行训练循环
-        
-        新增：
-        1. 初始化 Scheduler
-        2. 在每个 Epoch 结束时 step Scheduler
-        3. 打印当前 Learning Rate
-        """
-        self.optimizer = optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
-        
-        # [新增] 初始化学习率调度器
-        # mode='min': 当监控指标(val_loss)不再下降时触发
-        # factor=0.5: 触发时学习率减半
-        # patience=3: 容忍 3 个 epoch 指标不改善
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', factor=0.5, patience=3, verbose=True
-        )
-        
-        patience_counter = 0
-        
-        print(f"🚀 开始训练 (Epochs: {num_epochs}, Target: {self.target_key})")
-        print(f"   Scheduler: ReduceLROnPlateau (Patience=3, Factor=0.5)")
-        
-        for epoch in range(1, num_epochs + 1):
-            train_metrics = self.train_epoch(epoch)
-            val_metrics = self.validate()
-            
-            # 获取当前学习率用于打印
-            current_lr = self.optimizer.param_groups[0]['lr']
-            
-            print(f"Epoch {epoch}: "
-                  f"Train Loss={train_metrics['loss']:.4f} Acc={train_metrics['accuracy']:.4f} | "
-                  f"Val Loss={val_metrics.get('loss',0):.4f} Acc={val_metrics.get('accuracy',0):.4f} F1={val_metrics.get('f1_macro',0):.4f} | "
-                  f"LR={current_lr:.1e}") # [新增] 显示LR
-            
-            # [新增] 更新学习率
-            # 这里监控 Val Loss，如果验证集 Loss 不下降，学习率就会降低
-            scheduler.step(val_metrics.get('loss', 0))
-            
-            # 保存最佳模型逻辑
-            val_f1 = val_metrics.get('f1_macro', 0)
-            if val_f1 > self.best_val_f1:
-                self.best_val_f1 = val_f1
-                self.best_epoch = epoch
-                patience_counter = 0
-                torch.save(self.model.state_dict(), self.output_dir / 'best_model.pth')
-                # print(f"   🌟 New Best F1: {val_f1:.4f}")
-            else:
-                patience_counter += 1
                 
-            if patience_counter >= patience:
-                print(f"⏹️ 早停 (Patience {patience})")
-                break
+                probs = outputs['probabilities']
+                preds = torch.argmax(probs, dim=1)
+                
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
         
-        # 加载最佳模型
-        best_path = self.output_dir / 'best_model.pth'
+        if len(all_labels) == 0:
+            return {'loss': 0, 'accuracy': 0, 'f1_macro': 0, 'preds': [], 'labels': []}
+
+        accuracy = np.mean(np.array(all_preds) == np.array(all_labels))
+        f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+        
+        return {
+            'loss': total_loss / len(dataloader) if len(dataloader) > 0 else 0,
+            'accuracy': accuracy,
+            'f1_macro': f1,
+            'preds': all_preds,
+            'labels': all_labels
+        }
+    
+    def test(self):
+        if self.test_loader is None:
+            self.logger.warning("⚠️ 没有提供测试集 DataLoader")
+            return {}
+
+        best_path = self.output_dir / "best_model.pth"
         if best_path.exists():
-            self.model.load_state_dict(torch.load(best_path))
-            print(f"✅ 已加载最佳模型 (Epoch {self.best_epoch}, F1={self.best_val_f1:.4f})")
+            checkpoint = torch.load(best_path)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.logger.info(f"🧪 加载最佳模型 (Epoch {checkpoint['epoch']+1}) 进行测试")
+        
+        metrics = self.evaluate(self.test_loader)
+        cm = confusion_matrix(metrics['labels'], metrics['preds'])
+        np.save(self.output_dir / "confusion_matrix.npy", cm)
+        
+        print("\nTest Report:")
+        print(classification_report(metrics['labels'], metrics['preds'], digits=4, zero_division=0))
+        return metrics

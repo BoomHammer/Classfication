@@ -59,7 +59,7 @@ train:
   # === 大类模型专用超参数 ===
   major_model:
     epochs: 50            # 大类通常数据多，训练轮数可以适中
-    batch_size: 64        # 显存允许的情况下尽量大
+    batch_size: 32        # 显存允许的情况下尽量大
     learning_rate: 0.0005
     weight_decay: 0.0001
     patience: 10          # 早停耐心值
@@ -67,7 +67,7 @@ train:
   # === 小类模型专用超参数 ===
   detail_model:
     epochs: 50            # 小类可能需要更多轮次来拟合细节
-    batch_size: 64        # 某些小类样本少，Batch Size 不宜过大
+    batch_size: 32        # 某些小类样本少，Batch Size 不宜过大
     learning_rate: 0.0005 # 小类微调时学习率可以稍低
     weight_decay: 0.0001
     patience: 15          # 给更多耐心防止过早停止

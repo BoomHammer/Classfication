@@ -1,428 +1,129 @@
 #!/usr/bin/env python3
 """
-train.py: 完整的训练流程
-
-【第六阶段】训练循环与日志系统
-
-该脚本执行：
-1. 加载已准备好的数据集
-2. 初始化模型
-3. 执行训练（支持 Debug 模式快速过拟合测试）
-4. 评估测试集性能
-5. 生成训练报告
-
-运行方式：
-    # 正常训练
-    python train.py
-    
-    # Debug 模式（快速验证模型学习能力）
-    python train.py --debug
-    
-    # 断点续训
-    python train.py --resume_from ./experiments/outputs/.../last_model.pth
-    
-    # 自定义参数
-    python train.py --epochs 100 --lr 1e-3 --batch_size 32
-
-输出文件：
-    experiments/outputs/{timestamp}_{experiment_id}/
-    ├── best_model.pth              # 最佳模型权重
-    ├── last_model.pth              # 最后一个 checkpoint
-    ├── training_log.txt            # 训练日志
-    ├── training_metrics.json        # 训练指标
-    ├── confusion_matrix.npy         # 测试集混淆矩阵
-    ├── training_report.json         # 最终训练报告
-    └── model_summary.txt            # 模型信息汇总
+train.py: 训练主程序 (修复版 - 自动权重与参数)
 """
 
 import sys
 import json
 import argparse
 from pathlib import Path
-from datetime import datetime
-
 import torch
+import numpy as np
 from torch.utils.data import DataLoader
+from collections import Counter
 
-# 导入本地模块
 sys.path.insert(0, str(Path(__file__).parent))
-
 from config_manager import ConfigManager
-from label_encoder import LabelEncoder
-from raster_crawler import RasterCrawler
 from point_timeseries_dataset import PointTimeSeriesDataset, collate_fn
 from model_architecture import DualStreamSpatio_TemporalFusionNetwork
 from trainer import Trainer
 
-
-# ============================================================================
-# 工具函数
-# ============================================================================
-
-def load_or_prepare_data(config: ConfigManager, force_recompute: bool = False):
-    """
-    加载或准备数据集
+def calculate_class_weights(dataset, num_classes):
+    """计算类别权重 (Inverse Frequency)"""
+    print("⚖️ 正在计算类别权重...")
+    # 从 Dataset 的 points_df 中直接获取标签列
+    # 注意：label 字段名取决于 Dataset 初始化时设定的 target_col
+    # 这里假设我们训练的是 dataset.label_col 指定的列
+    all_labels = []
+    # 稍微 trick 一下：Dataset 已经把 df 存在 self.points_df
+    # 我们根据 split 筛选
+    indices = dataset.indices
+    # dataset.points_df 是完整的 dataframe
+    # indices 是 numpy array
+    subset_df = dataset.points_df.iloc[indices]
     
-    Args:
-        config: ConfigManager 对象
-        force_recompute: 是否强制重新计算
+    # 确定当前训练的目标列 (major 或 detail)
+    # 我们可以通过读取第一个样本的 'label' 来确认，或者假设是 detail
+    # 但为了稳健，我们统计 dataset[i]['label']
+    # 为了速度，直接用 DataFrame
+    # 假设 Dataset 正确设置了当前任务的标签
     
-    Returns:
-        (train_loader, val_loader, test_loader, num_classes)
-    """
-    print("\n" + "=" * 80)
-    print("📊 加载数据集...")
-    print("=" * 80 + "\n")
+    # 简易方案：遍历 dataset (稍微慢点但稳)
+    # 或者直接用 DataFrame 的分布
+    counts = Counter()
+    # 假设 points_df 里的列是 encoder 处理过的
+    # 这里我们只取前 1000 个样本做估计，或者全部
+    labels = [dataset[i]['label'].item() for i in range(len(dataset))]
+    counts.update(labels)
     
-    # 从之前的阶段检查必要文件
-    output_dir = config.get_experiment_output_dir()
-    
-    required_files = [
-        'normalization_stats.json',
-        'dataset_info.json',
-        'detected_parameters.json',
-    ]
-    
-    for filename in required_files:
-        filepath = Path(output_dir) / filename
-        if not filepath.exists():
-            print(f"❌ 必要文件不存在: {filename}")
-            print(f"   请先运行 python main.py 完成数据准备")
-            return None
-    
-    # 加载自动检测的参数
-    with open(Path(output_dir) / 'detected_parameters.json', 'r') as f:
-        params = json.load(f)
-    
-    num_classes = params['num_classes']
-    dynamic_channels = params['dynamic_channels']
-    static_channels = params['static_channels']
-    
-    print(f"✅ 自动检测参数:")
-    print(f"   - 类别数: {num_classes}")
-    print(f"   - 动态通道数: {dynamic_channels}")
-    print(f"   - 静态通道数: {static_channels}\n")
-    
-    # 初始化标签编码器和爬虫
-    encoder = LabelEncoder(config=config)
-    
-    dynamic_crawler = RasterCrawler(
-        config=config,
-        raster_dir=config.get_resolved_path('dynamic_images_dir'),
-        filename_pattern=config.get('data_specs.raster_crawler.filename_pattern'),
-        file_extensions=tuple(config.get('data_specs.raster_crawler.file_extensions', ['.tif', '.tiff', '.jp2'])),
-    )
-    
-    static_crawler = RasterCrawler(
-        config=config,
-        raster_dir=config.get_resolved_path('static_images_dir'),
-        filename_pattern=config.get('data_specs.raster_crawler.filename_pattern'),
-        file_extensions=tuple(config.get('data_specs.raster_crawler.file_extensions', ['.tif', '.tiff', '.jp2'])),
-    )
-    
-    # 初始化数据集
-    print("初始化数据集...")
-    
-    stats_file = Path(output_dir) / 'normalization_stats.json'
-    split_ratio = tuple(config.get('train.split_ratio', (0.7, 0.15, 0.15)))
-    
-    train_dataset = PointTimeSeriesDataset(
-        config=config,
-        encoder=encoder,
-        dynamic_crawler=dynamic_crawler,
-        static_crawler=static_crawler,
-        stats_file=str(stats_file) if stats_file.exists() else None,
-        split='train',
-        split_ratio=split_ratio,
-        seed=config.get('train.seed', 42),
-        cache_metadata=True,
-        verbose=False,
-    )
-    
-    val_dataset = PointTimeSeriesDataset(
-        config=config,
-        encoder=encoder,
-        dynamic_crawler=dynamic_crawler,
-        static_crawler=static_crawler,
-        stats_file=str(stats_file) if stats_file.exists() else None,
-        split='val',
-        split_ratio=split_ratio,
-        seed=config.get('train.seed', 42),
-        cache_metadata=True,
-        verbose=False,
-    )
-    
-    test_dataset = PointTimeSeriesDataset(
-        config=config,
-        encoder=encoder,
-        dynamic_crawler=dynamic_crawler,
-        static_crawler=static_crawler,
-        stats_file=str(stats_file) if stats_file.exists() else None,
-        split='test',
-        split_ratio=split_ratio,
-        seed=config.get('train.seed', 42),
-        cache_metadata=True,
-        verbose=False,
-    )
-    
-    print(f"✅ 数据集加载完成:")
-    print(f"   - 训练集: {len(train_dataset)} 样本")
-    print(f"   - 验证集: {len(val_dataset)} 样本")
-    print(f"   - 测试集: {len(test_dataset)} 样本\n")
-    
-    # 创建数据加载器
-    batch_size = config.get('train.batch_size', 32)
-    num_workers = config.get('train.num_workers', 0)
-    
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        collate_fn=collate_fn,
-        pin_memory=True if torch.cuda.is_available() else False,
-    )
-    
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        collate_fn=collate_fn,
-        pin_memory=True if torch.cuda.is_available() else False,
-    )
-    
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        collate_fn=collate_fn,
-        pin_memory=True if torch.cuda.is_available() else False,
-    )
-    
-    return train_loader, val_loader, test_loader, num_classes, dynamic_channels, static_channels
-
-
-def create_model(
-    num_classes: int,
-    dynamic_channels: int,
-    static_channels: int,
-    config: ConfigManager,
-):
-    """
-    创建模型
-    
-    Args:
-        num_classes: 类别数
-        dynamic_channels: 动态通道数
-        static_channels: 静态通道数
-        config: 配置对象
-    
-    Returns:
-        模型实例
-    """
-    print("\n" + "=" * 80)
-    print("🏗️  构建模型...")
-    print("=" * 80 + "\n")
-    
-    model = DualStreamSpatio_TemporalFusionNetwork(
-        in_channels_dynamic=dynamic_channels,
-        in_channels_static=static_channels,
-        num_classes=num_classes,
-        patch_size=config.get('data_specs.spatial.patch_size', 64),
-        temporal_steps=12,
-        hidden_dim=config.get('model.hidden_dim', 64),
-        fusion_dim=config.get('model.fusion_dim', 128),
-        dropout=config.get('model.dropout', 0.2),
-    )
-    
-    summary = model.get_model_summary()
-    print(f"✅ 模型构建成功")
-    print(f"   - 模型名称: {summary['model_name']}")
-    print(f"   - 总参数数: {summary['total_parameters']:,}")
-    print(f"   - 可训练参数: {summary['trainable_parameters']:,}\n")
-    
-    return model
-
+    total = sum(counts.values())
+    weights = torch.zeros(num_classes)
+    for cls_idx in range(num_classes):
+        count = counts[cls_idx]
+        if count > 0:
+            weights[cls_idx] = total / (len(counts) * count)
+        else:
+            weights[cls_idx] = 1.0 # 没出现的类给 1
+            
+    print(f"   类别分布: {dict(counts)}")
+    print(f"   计算权重: {weights.numpy().round(3)}")
+    return weights
 
 def main():
-    """主程序入口"""
-    
-    # 解析命令行参数
-    parser = argparse.ArgumentParser(description='训练遥感影像分类模型')
-    parser.add_argument('--epochs', type=int, default=50, help='训练轮数')
-    parser.add_argument('--lr', type=float, default=1e-3, help='学习率')
-    parser.add_argument('--weight_decay', type=float, default=1e-4, help='权重衰减')
-    parser.add_argument('--patience', type=int, default=10, help='早停耐心数')
-    parser.add_argument('--debug', action='store_true', help='Debug 模式')
-    parser.add_argument('--resume_from', type=str, default=None, help='从指定 checkpoint 恢复')
-    parser.add_argument('--config', type=str, default='config.yaml', help='配置文件路径')
-    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--batch_size', type=int, default=32) # 默认为 32
+    parser.add_argument('--accum_steps', type=int, default=2) # 默认累积2步 -> 效能64
+    parser.add_argument('--config', type=str, default='config.yaml')
+    parser.add_argument('--debug', action='store_true')
     args = parser.parse_args()
-    
-    # =========================================================================
-    # 第一步：加载配置
-    # =========================================================================
-    print("\n" + "=" * 80)
-    print("📋 加载配置...")
-    print("=" * 80 + "\n")
-    
+
+    # 1. 配置
     config_path = Path(__file__).parent / args.config
-    if not config_path.exists():
-        print(f"❌ 配置文件不存在: {config_path}")
-        return 1
-    
     config = ConfigManager(str(config_path))
     output_dir = config.get_experiment_output_dir()
     
-    print(f"✅ 配置加载成功")
-    print(f"   - 输出目录: {output_dir}\n")
+    # 2. 自动检测参数
+    param_file = output_dir / 'detected_parameters.json'
+    if not param_file.exists():
+        print("❌ 请先运行 preprocess_dataset.py")
+        return
+    with open(param_file, 'r') as f:
+        params = json.load(f)
     
-    # =========================================================================
-    # 第二步：加载数据集
-    # =========================================================================
-    data_result = load_or_prepare_data(config)
-    if data_result is None:
-        return 1
+    # 3. 数据集
+    print("📊 加载数据集...")
+    train_ds = PointTimeSeriesDataset(config, None, split='train', split_ratio=[0.7, 0.15, 0.15])
+    val_ds = PointTimeSeriesDataset(config, None, split='val', split_ratio=[0.7, 0.15, 0.15])
+    test_ds = PointTimeSeriesDataset(config, None, split='test', split_ratio=[0.7, 0.15, 0.15])
     
-    train_loader, val_loader, test_loader, num_classes, dynamic_channels, static_channels = data_result
-    
-    # =========================================================================
-    # 第三步：创建模型
-    # =========================================================================
-    model = create_model(num_classes, dynamic_channels, static_channels, config)
-    
-    # =========================================================================
-    # 第四步：初始化训练器
-    # =========================================================================
-    print("\n" + "=" * 80)
-    print("🎓 初始化训练器...")
-    print("=" * 80 + "\n")
-    
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, num_workers=8)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=4)
+    test_loader = DataLoader(test_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=4)
+
+    # 4. 计算权重
+    class_weights = calculate_class_weights(train_ds, params['num_classes'])
+
+    # 5. 模型
+    print(f"🏗️ 构建模型 (Dynamic: {params['dynamic_channels']}, Static: {params['static_channels']})...")
+    model = DualStreamSpatio_TemporalFusionNetwork(
+        in_channels_dynamic=params['dynamic_channels'],
+        in_channels_static=params['static_channels'],
+        num_classes=params['num_classes'],
+        hidden_dim=config.get('model.hidden_dim', 64),
+        dropout=config.get('model.dropout', 0.2)
+    )
+
+    # 6. 训练
     trainer = Trainer(
         model=model,
         train_dataloader=train_loader,
         val_dataloader=val_loader,
         test_dataloader=test_loader,
-        num_classes=num_classes,
-        device=device,
-        output_dir=output_dir,
-        verbose=True,
+        num_classes=params['num_classes'],
+        class_weights=class_weights, # 传入权重
+        output_dir=output_dir
     )
     
-    print(f"✅ 训练器初始化完成\n")
+    trainer.train(
+        num_epochs=args.epochs,
+        learning_rate=args.lr,
+        accumulation_steps=args.accum_steps, # 传入累积步数
+        debug=args.debug
+    )
     
-    # =========================================================================
-    # 第五步：执行训练
-    # =========================================================================
-    try:
-        resume_from = None
-        if args.resume_from:
-            resume_from = Path(args.resume_from)
-        
-        history = trainer.train(
-            num_epochs=args.epochs,
-            learning_rate=args.lr,
-            weight_decay=args.weight_decay,
-            patience=args.patience,
-            debug=args.debug,
-            resume_from=resume_from,
-        )
-        
-    except KeyboardInterrupt:
-        print("\n\n⏸️  训练被中断")
-        return 0
-    except Exception as e:
-        print(f"\n❌ 训练过程出错: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
-    
-    # =========================================================================
-    # 第六步：测试集评估
-    # =========================================================================
-    print("\n")
-    test_metrics = trainer.test()
-    
-    # =========================================================================
-    # 第七步：生成最终报告
-    # =========================================================================
-    print("\n" + "=" * 80)
-    print("📊 生成最终报告...")
-    print("=" * 80 + "\n")
-    
-    final_report = {
-        'experiment_info': {
-            'timestamp': datetime.now().isoformat(),
-            'config_file': str(config_path),
-            'output_directory': str(output_dir),
-        },
-        'model_info': {
-            'num_classes': num_classes,
-            'dynamic_channels': dynamic_channels,
-            'static_channels': static_channels,
-        },
-        'training_config': {
-            'num_epochs': args.epochs,
-            'learning_rate': args.lr,
-            'weight_decay': args.weight_decay,
-            'patience': args.patience,
-            'debug_mode': args.debug,
-        },
-        'dataset_info': {
-            'train_size': len(train_loader.dataset),
-            'val_size': len(val_loader.dataset),
-            'test_size': len(test_loader.dataset),
-        },
-        'training_history': history,
-        'test_metrics': test_metrics,
-        'best_model': {
-            'epoch': trainer.best_epoch,
-            'val_f1_score': float(trainer.best_val_f1),
-        }
-    }
-    
-    # 保存报告
-    report_file = Path(output_dir) / 'training_report.json'
-    with open(report_file, 'w', encoding='utf-8') as f:
-        json.dump(final_report, f, ensure_ascii=False, indent=2)
-    
-    print(f"✅ 最终报告已保存: {report_file}")
-    
-    # 打印摘要
-    print("\n" + "=" * 80)
-    print("📋 训练摘要")
-    print("=" * 80 + "\n")
-    
-    print(f"数据集:")
-    print(f"  - 训练集: {len(train_loader.dataset)} 样本")
-    print(f"  - 验证集: {len(val_loader.dataset)} 样本")
-    print(f"  - 测试集: {len(test_loader.dataset)} 样本")
-    print(f"\n最佳模型:")
-    print(f"  - Epoch: {trainer.best_epoch}")
-    print(f"  - 验证 F1-Score: {trainer.best_val_f1:.4f}")
-    print(f"\n测试结果:")
-    print(f"  - Accuracy: {test_metrics.get('accuracy', 0):.4f}")
-    print(f"  - F1 (Macro): {test_metrics.get('f1_macro', 0):.4f}")
-    print(f"  - F1 (Weighted): {test_metrics.get('f1_weighted', 0):.4f}")
-    print(f"  - IoU: {test_metrics.get('iou', 0):.4f}")
-    print(f"\n输出目录: {output_dir}")
-    print(f"\n📁 重要文件:")
-    print(f"  - {output_dir}/best_model.pth              (最佳模型)")
-    print(f"  - {output_dir}/training_log.txt            (训练日志)")
-    print(f"  - {output_dir}/training_metrics.json        (训练指标)")
-    print(f"  - {output_dir}/training_report.json         (最终报告)")
-    print(f"  - {output_dir}/confusion_matrix.npy         (混淆矩阵)")
-    
-    print("\n" + "=" * 80)
-    print("✅ 训练完成!")
-    print("=" * 80 + "\n")
-    
-    return 0
-
+    trainer.test()
 
 if __name__ == '__main__':
-    sys.exit(main())
+    main()

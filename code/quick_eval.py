@@ -6,308 +6,282 @@ quick_eval.py: 分层分类模型验证脚本
 1. 确保已安装所需的 Python 包。
 2. 在终端中运行以下命令：
    ```
-   cd code
-   python quick_eval.py --run_dir ../experiments/outputs/XXXXXXXX_XXXX_EXP_2023_001
+   python code/quick_eval.py --run_dir ../experiments/outputs/XXXXXXXX_XXXX_EXP_2023_001
    ```。
 """
 print("💡 脚本正在启动...")
 
-import sys
+import torch
 import json
+import sys
 import logging
 import argparse
-from pathlib import Path
-import torch
-from torch.utils.data import DataLoader
-import pandas as pd
 import numpy as np
+import pandas as pd
+from pathlib import Path
 from tqdm import tqdm
-from sklearn.metrics import accuracy_score, classification_report
+from torch.utils.data import DataLoader, Subset
+from sklearn.metrics import classification_report, accuracy_score
 
 # 导入本地模块
 sys.path.insert(0, str(Path(__file__).parent))
 from config_manager import ConfigManager
 from label_encoder import LabelEncoder
-# from raster_crawler import RasterCrawler # [移除] 不需要爬虫
 from point_timeseries_dataset import PointTimeSeriesDataset, collate_fn
 from model_architecture import DualStreamSpatio_TemporalFusionNetwork
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format='%(message)s')
-logger = logging.getLogger(__name__)
+def load_model_weights(model, path, device):
+    """安全加载模型权重"""
+    try:
+        # print(f"   ⏳ 加载权重: {path.name} ...")
+        checkpoint = torch.load(path, map_location=device, weights_only=False)
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            model.load_state_dict(checkpoint)
+        return True
+    except Exception as e:
+        print(f"   ❌ 权重加载失败: {e}")
+        return False
 
-def load_major_model(run_dir, num_classes, input_channels, device):
-    """加载大类模型"""
-    model_path = run_dir / "major_model" / "best_model.pth"
-    if not model_path.exists():
-        # 尝试加载 last_model.pth 作为备选
-        model_path = run_dir / "major_model" / "last_model.pth"
-        if not model_path.exists():
-             raise FileNotFoundError(f"❌ 大类模型文件未找到: {model_path}")
+def predict_subset(model, dataset, indices, device, batch_size):
+    """辅助函数：对指定索引的子集进行预测，返回局部预测结果"""
+    # [修复] 使用 len() 判断，兼容 List 和 NumPy Array
+    if len(indices) == 0:
+        return []
     
-    print(f"📦 加载大类模型: {model_path}")
-    model = DualStreamSpatio_TemporalFusionNetwork(
-        in_channels_dynamic=input_channels['dynamic'],
-        in_channels_static=input_channels['static'],
-        num_classes=num_classes
-    )
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model.to(device)
+    subset = Subset(dataset, indices)
+    dataloader = DataLoader(subset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
+    
+    local_preds = []
     model.eval()
-    return model
-
-def load_detail_models(run_dir, hierarchical_map, input_channels, device):
-    """
-    加载所有小类模型
-    """
-    models = {}
-    mappings = {}
-    single_class_map = {}
-    
-    print("📦 加载小类模型...")
-    
-    for major_name, info in hierarchical_map.items():
-        major_id = info['major_id']
-        detail_classes = info['detail_classes']
-        
-        # 情况1：只有一个小类，没有训练模型，直接记录ID
-        if len(detail_classes) <= 1:
-            global_id = list(detail_classes.values())[0]
-            single_class_map[major_id] = global_id
-            continue
+    with torch.no_grad():
+        for batch in dataloader:
+            dyn = batch['dynamic'].to(device)
+            sta = batch['static'].to(device)
+            outputs = model(dyn, sta)
+            preds = torch.argmax(outputs['probabilities'], dim=1)
+            local_preds.extend(preds.cpu().numpy())
             
-        # 情况2：有多个小类，加载对应的模型
-        model_folder = run_dir / f"detail_model_{major_id}_{major_name}"
-        model_path = model_folder / "best_model.pth"
+    return local_preds
+
+def main():
+    parser = argparse.ArgumentParser(description='分层模型快速评估')
+    parser.add_argument('--config', type=str, default='config.yaml')
+    parser.add_argument('--run_dir', type=str, help='指定实验输出目录')
+    parser.add_argument('--split', type=str, default='val', help='评估数据集: val 或 test')
+    parser.add_argument('--batch_size', type=int, default=32)
+    args = parser.parse_args()
+
+    print("="*60)
+    print("🚀 启动全链路评估脚本")
+    print("="*60)
+    
+    # 1. 初始化配置与路径
+    config_path = Path(__file__).parent / args.config
+    config = ConfigManager(str(config_path))
+    
+    if args.run_dir:
+        output_dir = Path(args.run_dir)
+        if not output_dir.exists():
+            print(f"❌ 目录不存在: {output_dir}")
+            sys.exit(1)
+        print(f"📂 实验目录: {output_dir}")
+    else:
+        print("⚠️ 未指定 --run_dir，使用默认目录")
+        output_dir = config.get_experiment_output_dir()
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"⚙️  配置: Split={args.split}, Device={device}")
+    
+    # 2. 确定通道数
+    param_file = output_dir / 'detected_parameters.json'
+    if param_file.exists():
+        with open(param_file, 'r') as f:
+            params = json.load(f)
+        dyn_ch = params['dynamic_channels']
+        sta_ch = params['static_channels']
+    else:
+        print("⚠️ 自动推断通道数...")
+        temp_ds = PointTimeSeriesDataset(config, None, split='val', verbose=False)
+        dyn_ch = temp_ds.num_channels
+        sta_ch = temp_ds.num_static_channels
+    print(f"📊 通道: Dynamic={dyn_ch}, Static={sta_ch}")
+
+    # 3. 加载映射
+    major_map_file = output_dir / 'major_labels_map.json'
+    detailed_map_file = output_dir / 'detailed_labels_map.json'
+    
+    if not major_map_file.exists():
+        print(f"❌ 缺少映射文件，请检查目录")
+        sys.exit(1)
+        
+    with open(major_map_file, 'r', encoding='utf-8') as f:
+        major_map = json.load(f)
+    with open(detailed_map_file, 'r', encoding='utf-8') as f:
+        detailed_map = json.load(f)
+    
+    inverse_detailed_map = {v: k for k, v in detailed_map.items()}
+    encoder = LabelEncoder(config=config, output_dir=output_dir)
+    
+    # 4. 加载数据集
+    print(f"\n📦 加载 {args.split} 数据集...")
+    dataset = PointTimeSeriesDataset(config, encoder, split=args.split, verbose=True)
+    if len(dataset) == 0:
+        print("❌ 数据集为空")
+        sys.exit(1)
+        
+    # 获取用于索引的 DataFrame
+    eval_df = dataset.points_df.iloc[dataset.indices].reset_index(drop=True)
+    num_samples = len(dataset)
+    
+    # 初始化结果数组
+    true_major_array = np.array(eval_df['major_label'])
+    true_detail_array = np.array(eval_df['detail_label'])
+    
+    pred_major_array = np.full(num_samples, -1)
+    
+    # [关键] 两个小类预测数组
+    # 1. Upper Bound: 假设大类已知，送入正确的小类模型 (反映小类模型本身能力)
+    pred_detail_upper = np.full(num_samples, -1) 
+    # 2. Pipeline: 依据预测的大类，送入对应的小类模型 (反映真实系统能力)
+    pred_detail_pipeline = np.full(num_samples, -1)
+
+    # =========================================================================
+    # 阶段 A: 评估大类模型
+    # =========================================================================
+    print("\n" + "-"*50)
+    print("🏗️  Step 1: 大类预测 (Major Prediction)")
+    print("-"*50)
+    
+    major_model_path = output_dir / 'major_model' / 'best_model.pth'
+    if major_model_path.exists():
+        major_model = DualStreamSpatio_TemporalFusionNetwork(
+            in_channels_dynamic=dyn_ch, in_channels_static=sta_ch, num_classes=len(major_map)
+        ).to(device)
+        
+        if load_model_weights(major_model, major_model_path, device):
+            # 对所有数据进行大类预测
+            all_indices = list(range(num_samples))
+            preds = predict_subset(major_model, dataset, all_indices, device, args.batch_size)
+            pred_major_array = np.array(preds)
+            
+            # 输出报告
+            print("\n📋 大类分类报告:")
+            major_names = [k for k, v in sorted(major_map.items(), key=lambda x: x[1])]
+            print(classification_report(true_major_array, pred_major_array, target_names=major_names, digits=4, zero_division=0))
+    else:
+        print(f"❌ 大类模型缺失: {major_model_path}")
+
+    # =========================================================================
+    # 阶段 B: 评估小类模型 (双路径)
+    # =========================================================================
+    print("\n" + "-"*50)
+    print("🏗️  Step 2: 小类预测 (Detail Prediction)")
+    print("-"*50)
+
+    # 遍历每一个大类 ID
+    for major_name, major_id in major_map.items():
+        sub_model_dir = output_dir / f"detail_model_{major_id}_{major_name}"
+        model_path = sub_model_dir / "best_model.pth"
+        mapping_path = sub_model_dir / "class_mapping.json"
+        
+        # 如果该大类没有训练好的小类模型
         if not model_path.exists():
-             model_path = model_folder / "last_model.pth"
+            continue 
 
-        mapping_path = model_folder / "class_mapping.json"
-        
-        if not model_path.exists() or not mapping_path.exists():
-            # print(f"  ⚠️  警告: 未找到大类 {major_name} 的模型文件，跳过。")
+        # 加载局部映射
+        try:
+            with open(mapping_path, 'r', encoding='utf-8') as f:
+                mapping_data = json.load(f)
+            local_to_global = {int(k): int(v) for k, v in mapping_data['local_to_global_map'].items()}
+        except:
             continue
             
-        # 加载映射配置
-        with open(mapping_path, 'r', encoding='utf-8') as f:
-            map_data = json.load(f)
-        # 转换 key 为 int
-        local_to_global = {int(k): int(v) for k, v in map_data['local_to_global_map'].items()}
-        mappings[major_id] = local_to_global
+        num_sub_classes = len(local_to_global)
         
         # 加载模型
         sub_model = DualStreamSpatio_TemporalFusionNetwork(
-            in_channels_dynamic=input_channels['dynamic'],
-            in_channels_static=input_channels['static'],
-            num_classes=len(detail_classes)
-        )
-        sub_model.load_state_dict(torch.load(model_path, map_location=device))
-        sub_model.to(device)
-        sub_model.eval()
-        models[major_id] = sub_model
+            in_channels_dynamic=dyn_ch, in_channels_static=sta_ch, num_classes=num_sub_classes
+        ).to(device)
         
-    return models, mappings, single_class_map
+        if not load_model_weights(sub_model, model_path, device):
+            continue
+        
+        # --- 路径 1: Upper Bound (基于真实标签) ---
+        true_indices = np.where(true_major_array == major_id)[0]
+        if len(true_indices) > 0:
+            local_preds = predict_subset(sub_model, dataset, true_indices, device, args.batch_size)
+            global_preds = [local_to_global[p] for p in local_preds]
+            pred_detail_upper[true_indices] = global_preds
+            
+        # --- 路径 2: Pipeline (基于大类预测) ---
+        # 找出大类模型预测为当前 major_id 的所有样本 (可能包含误判进来的)
+        pred_indices = np.where(pred_major_array == major_id)[0]
+        if len(pred_indices) > 0:
+            local_preds = predict_subset(sub_model, dataset, pred_indices, device, args.batch_size)
+            global_preds = [local_to_global[p] for p in local_preds]
+            pred_detail_pipeline[pred_indices] = global_preds
+            
+        print(f"👉 模型 [{major_name}]: 处理真实样本 {len(true_indices)} 个, 处理预测样本 {len(pred_indices)} 个")
 
-def predict_batch(dynamic, static, major_model, detail_models, detail_mappings, single_class_map, device):
-    """
-    对一个 Batch 进行级联预测
-    """
-    batch_size = dynamic.size(0)
-    
-    # 1. 预测大类
-    with torch.no_grad():
-        major_outputs = major_model(dynamic, static)
-        major_preds = torch.argmax(major_outputs['logits'], dim=1) 
-    
-    detail_preds_global = torch.zeros(batch_size, dtype=torch.long, device=device)
-    
-    # 2. 预测小类 (路由逻辑)
-    unique_major_ids = torch.unique(major_preds)
-    
-    for mid in unique_major_ids:
-        mid_item = mid.item()
-        indices = (major_preds == mid)
-        
-        sub_dynamic = dynamic[indices]
-        sub_static = static[indices]
-        
-        if mid_item in detail_models:
-            # A. 调用小类模型
-            model = detail_models[mid_item]
-            mapping = detail_mappings[mid_item]
-            
-            with torch.no_grad():
-                sub_out = model(sub_dynamic, sub_static)
-                sub_preds_local = torch.argmax(sub_out['logits'], dim=1)
-            
-            # 映射回全局ID
-            sub_preds_local_np = sub_preds_local.cpu().numpy()
-            sub_preds_global_np = [mapping[loc_id] for loc_id in sub_preds_local_np]
-            
-            detail_preds_global[indices] = torch.tensor(sub_preds_global_np, device=device)
-            
-        elif mid_item in single_class_map:
-            # B. 只有一个小类
-            target_global_id = single_class_map[mid_item]
-            detail_preds_global[indices] = target_global_id
-            
-        else:
-            # C. 异常情况 (未知大类或无模型)
-            detail_preds_global[indices] = -1 
-            
-    return major_preds, detail_preds_global
-
-def main():
-    parser = argparse.ArgumentParser(description="分层模型验证脚本")
-    parser.add_argument('--run_dir', type=str, required=True, help="实验输出目录路径")
-    parser.add_argument('--split', type=str, default='val', choices=['val', 'test', 'train'], help="数据集划分")
-    parser.add_argument('--batch_size', type=int, default=32, help="批次大小")
-    args = parser.parse_args()
-    
-    run_dir = Path(args.run_dir)
-    if not run_dir.exists():
-        print(f"❌ 目录不存在: {run_dir}")
-        return
-
-    # 1. 加载本地配置
-    local_config_path = Path(__file__).parent / 'config.yaml'
-    if not local_config_path.exists():
-        print(f"❌ 找不到本地配置文件: {local_config_path}")
-        return
-        
-    print(f"📋 加载配置文件: {local_config_path}")
-    config = ConfigManager(str(local_config_path))
-    
-    # 2. 准备数据集 (核心修复部分)
-    print("🔄 初始化数据加载器 (读取预处理数据)...")
-    encoder = LabelEncoder(config=config)
-    
-    # [修复] 移除 Crawler 初始化，直接使用 Dataset 加载 .pt 文件
-    try:
-        dataset = PointTimeSeriesDataset(
-            config=config, 
-            encoder=encoder, 
-            crawler=None, # 不需要爬虫
-            split=args.split,
-            # 注意：这里使用默认 split_ratio 以匹配 main.py 的行为，确保索引一致
-        )
-    except FileNotFoundError as e:
-        print(f"❌ 错误: {e}")
-        print("💡 请确保已运行 preprocess_dataset.py 生成了数据。")
-        return
-    
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0)
-    
-    print(f"📊 验证集样本数: {len(dataset)}")
-    
-    # [修复] 从 Dataset 直接获取通道数
-    dyn_ch = dataset.num_channels
-    sta_ch = 1 # 静态数据目前是占位符
-    print(f"ℹ️  检测到通道数: Dynamic={dyn_ch}, Static={sta_ch}")
-    
-    input_channels = {'dynamic': dyn_ch, 'static': sta_ch}
-    
-    # 3. 加载模型
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"🖥️  使用设备: {device}")
-    
-    major_map = encoder.get_major_labels_map()
-    hierarchical_map = encoder.get_hierarchical_map()
-    
-    try:
-        major_model = load_major_model(run_dir, len(major_map), input_channels, device)
-        detail_models, detail_mappings, single_class_map = load_detail_models(
-            run_dir, hierarchical_map, input_channels, device
-        )
-    except Exception as e:
-        print(f"❌ 模型加载失败: {e}")
-        return
-
-    # 4. 执行推理
-    print("\n🚀 开始分层推理...")
-    all_results = []
-    
-    pbar = tqdm(dataloader, desc="Eval")
-    for batch in pbar:
-        dynamic = batch['dynamic'].to(device)
-        static = batch['static'].to(device)
-        major_true = batch['major_label'].to(device)
-        detail_true = batch['detail_label'].to(device)
-        
-        # 处理 ID (兼容不同 dataset 返回格式)
-        if 'metadata' in batch and isinstance(batch['metadata'], list):
-             ids = [m['sample_id'] for m in batch['metadata']]
-        else:
-             ids = range(len(major_true)) # Fallback
-        
-        major_preds, detail_preds = predict_batch(
-            dynamic, static, 
-            major_model, detail_models, detail_mappings, single_class_map, 
-            device
-        )
-        
-        for i in range(len(major_true)):
-            all_results.append({
-                'id': ids[i],
-                'major_true': major_true[i].item(),
-                'major_pred': major_preds[i].item(),
-                'detail_true': detail_true[i].item(),
-                'detail_pred': detail_preds[i].item()
-            })
-            
-    # 5. 生成报告
-    if not all_results:
-        print("❌ 未生成任何预测结果，请检查数据加载器。")
-        return
-
-    df_res = pd.DataFrame(all_results)
-    
-    inv_major_map = {v: k for k, v in major_map.items()}
-    detailed_map = encoder.get_detailed_labels_map()
-    inv_detail_map = {v: k for k, v in detailed_map.items()}
-    
-    df_res['major_true_name'] = df_res['major_true'].map(inv_major_map)
-    df_res['major_pred_name'] = df_res['major_pred'].map(inv_major_map)
-    df_res['detail_true_name'] = df_res['detail_true'].map(inv_detail_map)
-    df_res['detail_pred_name'] = df_res['detail_pred'].map(inv_detail_map)
-    
-    df_res['major_correct'] = df_res['major_true'] == df_res['major_pred']
-    df_res['detail_correct'] = df_res['detail_true'] == df_res['detail_pred']
-    
+    # =========================================================================
+    # 阶段 C: 生成报告
+    # =========================================================================
     print("\n" + "="*60)
-    print("📊 验证结果报告")
+    print("📊 最终评估报告")
     print("="*60)
     
-    # 指标计算
-    major_acc = accuracy_score(df_res['major_true'], df_res['major_pred'])
-    print(f"\n✅ 大类总体准确率 (Major Accuracy): {major_acc:.2%}")
-    # 避免 warning: 指定 labels
-    unique_major = sorted(list(df_res['major_true'].unique()))
-    print("\n大类分类报告:")
-    print(classification_report(
-        df_res['major_true'], 
-        df_res['major_pred'], 
-        labels=unique_major,
-        target_names=[inv_major_map.get(i, str(i)) for i in unique_major], 
-        digits=4,
-        zero_division=0
-    ))
+    # 1. Upper Bound 报告
+    valid_mask_upper = pred_detail_upper != -1
+    if np.sum(valid_mask_upper) > 0:
+        y_true = true_detail_array[valid_mask_upper]
+        y_pred = pred_detail_upper[valid_mask_upper]
+        unique_labels = sorted(list(set(y_true) | set(y_pred)))
+        names = [inverse_detailed_map.get(i, str(i)) for i in unique_labels]
+        
+        print("\n✅ 小类分类报告 (Upper Bound - 假设大类正确):")
+        print("   (仅包含已训练小类模型的类别)")
+        print(classification_report(y_true, y_pred, target_names=names, digits=4, zero_division=0))
     
-    detail_acc = accuracy_score(df_res['detail_true'], df_res['detail_pred'])
-    print(f"\n✅ 小类总体准确率 (Detail Accuracy): {detail_acc:.2%}")
+    # 2. Pipeline 报告
+    valid_mask_pipe = pred_detail_pipeline != -1
     
-    conditional_df = df_res[df_res['major_correct']]
-    if len(conditional_df) > 0:
-        cond_acc = accuracy_score(conditional_df['detail_true'], conditional_df['detail_pred'])
-        print(f"👉 大类正确条件下的小类准确率: {cond_acc:.2%}")
+    if np.sum(valid_mask_pipe) > 0:
+        y_true = true_detail_array[valid_mask_pipe]
+        y_pred = pred_detail_pipeline[valid_mask_pipe]
+        
+        unique_labels = sorted(list(set(y_true) | set(y_pred)))
+        names = [inverse_detailed_map.get(i, str(i)) for i in unique_labels]
+        
+        print("\n🚀 总体各小类分类报告 (Pipeline - 真实流水线):")
+        print("   (包含大类错误导致的传递误差)")
+        print(classification_report(y_true, y_pred, target_names=names, digits=4, zero_division=0))
+        
+        acc = accuracy_score(y_true, y_pred)
+        print(f"🏆 总体小类准确率 (Pipeline Accuracy): {acc:.2%}")
+    else:
+        print("\n❌ 无法生成流水线报告 (可能是大类模型未预测出任何有效类别)")
+
+    # 3. 保存详细结果
+    id_col = config.get('data_specs.csv_columns.id', 'Index')
+    if id_col not in eval_df.columns:
+        id_col = 'sample_id_generated'
+        eval_df[id_col] = eval_df.index
+
+    results_df = pd.DataFrame({
+        'sample_id': eval_df[id_col],
+        'true_major': [list(major_map.keys())[list(major_map.values()).index(i)] for i in true_major_array],
+        'pred_major': [list(major_map.keys())[list(major_map.values()).index(i)] if i!=-1 else 'N/A' for i in pred_major_array],
+        'true_detail': [inverse_detailed_map.get(i, str(i)) for i in true_detail_array],
+        'pred_detail_upper': [inverse_detailed_map.get(i, str(i)) if i!=-1 else 'N/A' for i in pred_detail_upper],
+        'pred_detail_pipeline': [inverse_detailed_map.get(i, str(i)) if i!=-1 else 'N/A' for i in pred_detail_pipeline]
+    })
     
-    # 保存结果
-    output_csv = run_dir / f"evaluation_predictions_{args.split}.csv"
-    cols = ['id', 'major_true_name', 'major_pred_name', 'major_correct', 
-            'detail_true_name', 'detail_pred_name', 'detail_correct',
-            'major_true', 'major_pred', 'detail_true', 'detail_pred']
-    df_res[cols].to_csv(output_csv, index=False, encoding='utf-8-sig')
-    print(f"📁 结果已保存至: {output_csv}")
+    csv_name = f"eval_full_report_{args.split}.csv"
+    save_path = output_dir / csv_name
+    results_df.to_csv(save_path, index=False, encoding='utf-8-sig')
+    print(f"\n💾 详细预测结果已保存: {save_path}")
 
 if __name__ == "__main__":
     main()

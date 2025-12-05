@@ -1,5 +1,5 @@
 """
-point_timeseries_dataset.py: 极速版 (加载 .pt 文件)
+point_timeseries_dataset.py: 极速版 (加载 .pt 文件) - 修复静态通道检测
 """
 
 import torch
@@ -10,7 +10,7 @@ import json
 import numpy as np
 
 class PointTimeSeriesDataset(Dataset):
-    def __init__(self, config, encoder, crawler=None, split='train', split_ratio=(0.8, 0.2, 0.0), seed=42):
+    def __init__(self, config, encoder, crawler=None, split='train', split_ratio=(0.8, 0.2, 0.0), seed=42, verbose=True, **kwargs):
         self.logger = logging.getLogger(__name__)
         self.processed_dir = config.get_resolved_path('data_dir') / "processed_tensors"
         self.encoder = encoder
@@ -19,21 +19,26 @@ class PointTimeSeriesDataset(Dataset):
         if not self.processed_dir.exists():
             raise FileNotFoundError(f"❌ 找不到预处理数据: {self.processed_dir}\n请先运行 code/preprocess_dataset.py")
 
-        # 1. 加载元数据 (获取 channel_map)
+        # 1. 加载元数据
         meta_path = self.processed_dir / "dataset_metadata.json"
+        self.channel_map = {}
+        self.num_channels = 0     # 动态通道数
+        self.static_channels = [] # 静态通道名
+        self.num_static_channels = 0 # 静态通道数
+
         if meta_path.exists():
             with open(meta_path, 'r', encoding='utf-8') as f:
                 meta = json.load(f)
             self.channel_map = meta.get('channel_map', {})
-            self.num_channels = meta.get('num_channels', 0)
+            self.num_channels = meta.get('num_channels', len(self.channel_map))
+            self.static_channels = meta.get('static_channels', [])
+            self.num_static_channels = len(self.static_channels)
         else:
-            # Fallback: 如果没有元数据文件 (旧版预处理)，尝试从 normalization_stats 恢复
-            self.channel_map = {} 
-            self.logger.warning("⚠️ 未找到 dataset_metadata.json，channel_map 将为空。建议重新运行预处理。")
+            if verbose:
+                self.logger.warning("⚠️ 未找到 dataset_metadata.json，将通过样本自动推断通道数。")
 
         # 2. 获取所有可用的样本ID
         all_files = list(self.processed_dir.glob("*.pt"))
-        # 过滤掉非数字命名的文件 (如 metadata.json)
         all_indices = []
         for f in all_files:
             if f.stem.isdigit():
@@ -44,15 +49,34 @@ class PointTimeSeriesDataset(Dataset):
 
         # 3. 划分数据集
         self.indices = self._split_indices(all_indices, split, split_ratio, seed)
-        self.logger.info(f"[{split.upper()}] 加载 {len(self.indices)} 个预处理样本")
+        if verbose:
+            self.logger.info(f"[{split.upper()}] 加载 {len(self.indices)} 个预处理样本")
         
-        # 4. 从第一个样本校验通道数 (如果元数据没读到)
-        if hasattr(self, 'num_channels') and self.num_channels == 0 and len(self.indices) > 0:
-            # explicit weights_only=False to silence warning
-            sample_0 = torch.load(self.processed_dir / f"{self.indices[0]}.pt", weights_only=False)
-            self.num_channels = sample_0['dynamic'].shape[1]
+        # 4. 自动推断通道数 (如果元数据缺失或不完整)
+        # 即使有元数据，校验一下也是安全的
+        if len(self.indices) > 0 and (self.num_channels == 0 or self.num_static_channels == 0):
+            try:
+                # 显式 weights_only=False 消除警告
+                sample_0 = torch.load(self.processed_dir / f"{self.indices[0]}.pt", weights_only=False)
+                
+                # 动态通道检测
+                if self.num_channels == 0:
+                    self.num_channels = sample_0['dynamic'].shape[1]
+                
+                # 静态通道检测
+                if self.num_static_channels == 0:
+                    if 'static' in sample_0:
+                        self.num_static_channels = sample_0['static'].shape[0]
+                    else:
+                        self.num_static_channels = 0 # 甚至可能是 0
+                
+                if verbose:
+                    self.logger.info(f"🔍 自动检测通道数: Dynamic={self.num_channels}, Static={self.num_static_channels}")
+            except Exception as e:
+                self.logger.warning(f"⚠️ 无法通过样本推断通道数: {e}")
         
-        self.points_df = encoder.get_geodataframe().reset_index(drop=True)
+        if encoder:
+            self.points_df = encoder.get_geodataframe().reset_index(drop=True)
 
     def _split_indices(self, available_indices, split, ratio, seed):
         available_indices = np.array(sorted(available_indices))
@@ -75,7 +99,6 @@ class PointTimeSeriesDataset(Dataset):
         file_id = self.indices[idx]
         file_path = self.processed_dir / f"{file_id}.pt"
         
-        # 消除 FutureWarning
         data = torch.load(file_path, weights_only=False)
         
         # 动态生成 Mask
