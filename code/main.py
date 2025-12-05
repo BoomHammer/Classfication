@@ -42,8 +42,11 @@ def main():
     print("="*60)
 
     # 1. 加载配置
-    config = ConfigManager(str(Path(__file__).parent / 'config.yaml'))
+    # [修复] 只有在 main 函数中明确开启目录创建，防止多进程或模块导入时重复创建
+    config = ConfigManager(str(Path(__file__).parent / 'config.yaml'), create_experiment_dir=True)
+    
     output_dir = config.get_experiment_output_dir()
+    # output_dir 已经在 ConfigManager 内部创建，但这里保留以防万一
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # 获取超参数
@@ -64,7 +67,6 @@ def main():
     # 3. 自动归一化计算 (仅当文件不存在时)
     stats_file = output_dir / 'normalization_stats.json'
     if not stats_file.exists():
-        # 检查是否在之前的运行目录中有（可选优化，这里直接从tiff计算更稳）
         print("\n📊 正在计算全局统计量 (动态+静态)...")
         dyn_crawler = RasterCrawler(config=config)
         static_crawler = RasterCrawler(
@@ -88,7 +90,7 @@ def main():
         print("💡 请先运行: python code/preprocess_dataset.py")
         sys.exit(1)
     
-    # 5. [关键修改] 直接从数据集获取通道参数，不再依赖可能丢失的json文件
+    # 5. [关键修改] 直接从数据集获取通道参数
     dyn_ch = full_train_dataset.num_channels
     sta_ch = full_train_dataset.num_static_channels
     
@@ -97,7 +99,6 @@ def main():
     
     if sta_ch == 0:
         print("⚠️ 警告：检测到静态通道数为 0，请检查 preprocess_dataset.py 是否正确读取了静态数据。")
-        # 如果确实是0，为了防止模型报错，可能需要特殊处理，但这里先让它跑，看是否报错
 
     major_map = encoder.get_major_labels_map()
     hierarchical_map = encoder.get_hierarchical_map()

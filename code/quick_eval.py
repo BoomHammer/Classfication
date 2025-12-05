@@ -6,10 +6,9 @@ quick_eval.py: 分层分类模型验证脚本
 1. 确保已安装所需的 Python 包。
 2. 在终端中运行以下命令：
    ```
-   python code/quick_eval.py --run_dir ../experiments/outputs/XXXXXXXX_XXXX_EXP_2023_001
+   python code/quick_eval.py --run_dir experiments/outputs/XXXXXXXX_XXXX_EXP_2023_001
    ```。
 """
-print("💡 脚本正在启动...")
 
 import torch
 import json
@@ -46,7 +45,6 @@ def load_model_weights(model, path, device):
 
 def predict_subset(model, dataset, indices, device, batch_size):
     """辅助函数：对指定索引的子集进行预测，返回局部预测结果"""
-    # [修复] 使用 len() 判断，兼容 List 和 NumPy Array
     if len(indices) == 0:
         return []
     
@@ -79,7 +77,8 @@ def main():
     
     # 1. 初始化配置与路径
     config_path = Path(__file__).parent / args.config
-    config = ConfigManager(str(config_path))
+    # [修复] 评估模式下不创建新的实验文件夹
+    config = ConfigManager(str(config_path), create_experiment_dir=False)
     
     if args.run_dir:
         output_dir = Path(args.run_dir)
@@ -88,8 +87,10 @@ def main():
             sys.exit(1)
         print(f"📂 实验目录: {output_dir}")
     else:
-        print("⚠️ 未指定 --run_dir，使用默认目录")
+        # 如果未指定 run_dir，使用默认基础目录或上次运行目录
+        # 注意：由于 create_experiment_dir=False，这里得到的是基础目录
         output_dir = config.get_experiment_output_dir()
+        print(f"⚠️ 未指定 --run_dir，将在基础目录寻找资源: {output_dir}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"⚙️  配置: Split={args.split}, Device={device}")
@@ -113,7 +114,8 @@ def main():
     detailed_map_file = output_dir / 'detailed_labels_map.json'
     
     if not major_map_file.exists():
-        print(f"❌ 缺少映射文件，请检查目录")
+        print(f"❌ 缺少映射文件 (major_labels_map.json)，请检查目录: {output_dir}")
+        print("💡 提示：评估脚本需要指定包含训练结果的文件夹，请使用 --run_dir 参数。")
         sys.exit(1)
         
     with open(major_map_file, 'r', encoding='utf-8') as f:
