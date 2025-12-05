@@ -205,9 +205,7 @@ class LabelEncoder:
         }
         self.inverse_detailed_map = {v: k for k, v in self.detailed_labels_map.items()}
         
-        logger.info(f"📊 详细类别映射 ({len(self.detailed_labels_map)} 类):")
-        for cat, idx in sorted(self.detailed_labels_map.items(), key=lambda x: x[1]):
-            logger.info(f"   {idx}: {cat}")
+        logger.info(f"📊 详细类别映射生成完毕: 共 {len(self.detailed_labels_map)} 类")
         
         # 生成大类映射
         major_categories = sorted(self.df[self.major_class_col].unique())
@@ -216,9 +214,7 @@ class LabelEncoder:
         }
         self.inverse_major_map = {v: k for k, v in self.major_labels_map.items()}
         
-        logger.info(f"📊 大类映射 ({len(self.major_labels_map)} 类):")
-        for cat, idx in sorted(self.major_labels_map.items(), key=lambda x: x[1]):
-            logger.info(f"   {idx}: {cat}")
+        logger.info(f"📊 大类映射生成完毕: 共 {len(self.major_labels_map)} 类")
         
         # 生成层级映射（大类 → 详细类别列表）
         self.hierarchical_map = {}
@@ -235,11 +231,9 @@ class LabelEncoder:
                 }
             }
         
-        logger.info(f"📊 层级映射:")
+        logger.info(f"📊 层级映射结构:")
         for major_class, info in sorted(self.hierarchical_map.items()):
-            logger.info(f"   {info['major_id']}: {major_class}")
-            for det_cat, det_id in sorted(info['detail_classes'].items(), key=lambda x: x[1]):
-                logger.info(f"      └─ {det_id}: {det_cat}")
+            logger.info(f"   [{info['major_id']}] {major_class}: 包含 {len(info['detail_classes'])} 个子类")
         
         # 添加标签列到数据框
         self.df['detail_label'] = self.df[self.detail_class_col].map(

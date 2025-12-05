@@ -60,7 +60,7 @@ class StatsCalculator:
                 var_files[r.variable].append(r)
         
         self.logger.info(f"📊 正在计算动态变量统计量 ({len(self.dynamic_channel_order)} 个变量)...")
-        for var_name in self.dynamic_channel_order:
+        for i, var_name in enumerate(self.dynamic_channel_order):
             files = var_files.get(var_name, [])
             if not files: continue
             
@@ -68,15 +68,18 @@ class StatsCalculator:
             sampled = random.sample(files, k)
             stats = self.dynamic_stats[var_name]
             
-            pbar = tqdm(sampled, desc=f"  - 动态 {var_name}", leave=False)
-            for meta in pbar:
+            self.logger.info(f"  [{i+1}/{len(self.dynamic_channel_order)}] 计算 {var_name} (采样 {len(sampled)} 张)...")
+            
+            for meta in sampled:
                 try:
                     with rasterio.open(meta.filepath) as src:
                         data = src.read(1)
                         valid_data = data[data != 0] # 假设 0 是 nodata
                         stats.update(valid_data)
                 except: pass
-            self.logger.info(f"    {var_name}: Mean={stats.mean:.4f}, Std={stats.std:.4f}")
+            
+            # 计算完一个变量后，输出结果
+            self.logger.info(f"    -> {var_name}: Mean={stats.mean:.4f}, Std={stats.std:.4f}")
 
     def _compute_static(self, crawler):
         """计算静态影像统计量 (全量)"""

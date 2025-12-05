@@ -46,23 +46,23 @@ model:
   # in_channels_static: 由 RasterCrawler 自动检测
   # num_classes: 由 LabelEncoder 自动检测
   temporal_encoder: "LTAE"                        # 时间编码器类型
-  dropout: 0.2
-  hidden_dim: 64                                  # 隐层维度
+  dropout: 0.3
+  hidden_dim: 128                                  # 隐层维度
 
 # 4. 训练超参数 (Training Hyperparameters)
 train:
   # 通用配置
   seed: 42
-  num_workers: 16          # 数据加载线程数，根据CPU核数调整
+  num_workers: 8          # 数据加载线程数，根据CPU核数调整
   split_ratio: [0.7, 0.15, 0.15] # 训练/验证/测试比例
 
   # === 大类模型专用超参数 ===
   major_model:
-    epochs: 50            # 大类通常数据多，训练轮数可以适中
+    epochs: 100            # 大类通常数据多，训练轮数可以适中
     batch_size: 32        # 显存允许的情况下尽量大
     learning_rate: 0.0005
-    weight_decay: 0.0001
-    patience: 10          # 早停耐心值
+    weight_decay: 0.001
+    patience: 20          # 早停耐心值
 
   # === 小类模型专用超参数 ===
   detail_model:

@@ -85,10 +85,10 @@ class Trainer:
             self.model.train()
             train_loss = 0.0
             
-            pbar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{num_epochs}", leave=False)
+            # pbar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{num_epochs}", leave=False)
             self.optimizer.zero_grad()
             
-            for i, batch in enumerate(pbar):
+            for i, batch in enumerate(self.train_loader):
                 if not batch: continue
                 
                 dyn = batch['dynamic'].to(self.device)
@@ -115,7 +115,6 @@ class Trainer:
                     self.optimizer.zero_grad()
                 
                 train_loss += loss.item() * accumulation_steps
-                pbar.set_postfix({'loss': f"{loss.item() * accumulation_steps:.4f}"})
                 
                 if debug and i >= 5: break
             
@@ -127,9 +126,18 @@ class Trainer:
             self.history['val_acc'].append(val_metrics['accuracy'])
             self.history['val_f1'].append(val_metrics['f1_macro'])
             
+            log_msg = (
+                f"Epoch {epoch+1}/{num_epochs}: "
+                f"Train Loss={avg_train_loss:.4f} | "
+                f"Val Loss={val_metrics['loss']:.4f} | "
+                f"Val Acc={val_metrics['accuracy']:.4f} | "
+                f"Val F1={val_metrics['f1_macro']:.4f}"
+            )
+
             if self.verbose:
-                print(f"Epoch {epoch+1}: Train Loss={avg_train_loss:.4f}, Val Loss={val_metrics['loss']:.4f}, Val Acc={val_metrics['accuracy']:.4f}, Val F1={val_metrics['f1_macro']:.4f}")
+                self.logger.info(log_msg)
             
+            # 保存最佳模型逻辑
             if val_metrics['f1_macro'] > self.best_val_f1:
                 self.best_val_f1 = val_metrics['f1_macro']
                 self.best_epoch = epoch + 1
