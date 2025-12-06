@@ -4,9 +4,9 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from pathlib import Path
 import logging
-from tqdm import tqdm
 import numpy as np
 from sklearn.metrics import classification_report, f1_score, confusion_matrix
+import json
 
 class Trainer:
     def __init__(
@@ -33,8 +33,18 @@ class Trainer:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.verbose = verbose
         self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
         self.target_key = target_key
         self.label_mapping = label_mapping
+
+        # 防止重复添加 Handler (例如多次实例化 Trainer 时)
+        if not any(isinstance(h, logging.FileHandler) for h in self.logger.handlers):
+            # 创建文件 Handler，将日志写入 output_dir/train.log
+            log_path = self.output_dir / "train.log"
+            file_handler = logging.FileHandler(log_path, encoding='utf-8')
+            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            file_handler.setFormatter(formatter)
+            self.logger.addHandler(file_handler)
         
         if class_weights is not None:
             self.criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
@@ -46,7 +56,7 @@ class Trainer:
         self.optimizer = None
         self.best_val_f1 = 0.0
         self.best_epoch = 0
-        self.history = {'train_loss': [], 'val_loss': [], 'val_acc': [], 'val_f1': []}
+        self.history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': [], 'val_f1': []}
 
     def mixup_data(self, x_dyn, x_sta, y, alpha=0.4):
         if alpha > 0:
@@ -84,6 +94,8 @@ class Trainer:
         for epoch in range(start_epoch, num_epochs):
             self.model.train()
             train_loss = 0.0
+            train_correct = 0
+            train_total = 0
             
             # pbar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{num_epochs}", leave=False)
             self.optimizer.zero_grad()
@@ -115,20 +127,35 @@ class Trainer:
                     self.optimizer.zero_grad()
                 
                 train_loss += loss.item() * accumulation_steps
+                with torch.no_grad():
+                    preds = torch.argmax(outputs['logits'], dim=1)
+                    # 简单准确率：直接对比预测值和原始标签
+                    # (注：如果 Mixup 强度很大，这个指标可能会略有抖动，但在大多数情况下足以作为参考)
+                    train_correct += (preds == labels).sum().item()
+                    train_total += labels.size(0)
                 
                 if debug and i >= 5: break
             
             avg_train_loss = train_loss / len(self.train_loader)
+            avg_train_acc = train_correct / train_total if train_total > 0 else 0.0
             val_metrics = self.evaluate(self.val_loader)
             
+            # 更新历史记录
             self.history['train_loss'].append(avg_train_loss)
+            self.history['train_acc'].append(avg_train_acc)
             self.history['val_loss'].append(val_metrics['loss'])
             self.history['val_acc'].append(val_metrics['accuracy'])
             self.history['val_f1'].append(val_metrics['f1_macro'])
+
+            # 保存历史记录到 JSON 文件
+            history_path = self.output_dir / "training_history.json"
+            with open(history_path, 'w', encoding='utf-8') as f:
+                json.dump(self.history, f, indent=4)
             
             log_msg = (
                 f"Epoch {epoch+1}/{num_epochs}: "
                 f"Train Loss={avg_train_loss:.4f} | "
+                f"Train Acc={avg_train_acc:.4f} | "
                 f"Val Loss={val_metrics['loss']:.4f} | "
                 f"Val Acc={val_metrics['accuracy']:.4f} | "
                 f"Val F1={val_metrics['f1_macro']:.4f}"
@@ -148,6 +175,7 @@ class Trainer:
                     'optimizer_state_dict': self.optimizer.state_dict(),
                     'best_f1': self.best_val_f1
                 }, self.output_dir / "best_model.pth")
+                self.logger.info(f"💾 保存最佳模型 (F1: {self.best_val_f1:.4f})")
             else:
                 no_improve_count += 1
                 
@@ -208,7 +236,11 @@ class Trainer:
         metrics = self.evaluate(self.test_loader)
         cm = confusion_matrix(metrics['labels'], metrics['preds'])
         np.save(self.output_dir / "confusion_matrix.npy", cm)
-        
+
+        report = classification_report(metrics['labels'], metrics['preds'], digits=4, zero_division=0)
         print("\nTest Report:")
-        print(classification_report(metrics['labels'], metrics['preds'], digits=4, zero_division=0))
+        print(report)
+        # 将测试报告也写入日志
+        self.logger.info("\nTest Report:\n" + report)
+
         return metrics
