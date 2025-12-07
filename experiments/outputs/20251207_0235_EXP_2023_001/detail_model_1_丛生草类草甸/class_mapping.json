@@ -1,0 +1,14 @@
+{
+  "major_class": "丛生草类草甸",
+  "major_id": 1,
+  "local_to_global_map": {
+    "0": 3,
+    "1": 15,
+    "2": 30
+  },
+  "global_to_local_map": {
+    "3": 0,
+    "15": 1,
+    "30": 2
+  }
+}

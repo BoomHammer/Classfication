@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from pathlib import Path
@@ -8,6 +9,44 @@ import numpy as np
 from sklearn.metrics import classification_report, f1_score, confusion_matrix
 import json
 
+# ============================================================================
+# Focal Loss 定义 (新增)
+# ============================================================================
+class FocalLoss(nn.Module):
+    """
+    Focal Loss: 降低易分样本权重，关注难分样本
+    Gamma: 聚焦参数 (默认2.0)
+    Alpha: 类别平衡参数 (可以是列表或Tensor)
+    """
+    def __init__(self, alpha=None, gamma=2.0, reduction='mean', device='cuda'):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        self.reduction = reduction
+        self.device = device
+        
+        if alpha is not None:
+            if isinstance(alpha, (list, np.ndarray)):
+                self.alpha = torch.tensor(alpha, dtype=torch.float32).to(device)
+            else:
+                self.alpha = alpha.to(device)
+        else:
+            self.alpha = None
+
+    def forward(self, inputs, targets):
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none', weight=self.alpha)
+        pt = torch.exp(-ce_loss)
+        focal_loss = (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
+
+# ============================================================================
+# Trainer 类
+# ============================================================================
 class Trainer:
     def __init__(
         self,
@@ -21,7 +60,8 @@ class Trainer:
         class_weights: torch.Tensor = None,
         target_key: str = 'label',
         verbose: bool = True,
-        label_mapping: dict = None
+        label_mapping: dict = None,
+        use_focal_loss: bool = True  # 新增开关
     ):
         self.model = model.to(device)
         self.train_loader = train_dataloader
@@ -37,22 +77,29 @@ class Trainer:
         self.target_key = target_key
         self.label_mapping = label_mapping
 
-        # 防止重复添加 Handler (例如多次实例化 Trainer 时)
+        # 日志 Handler
         if not any(isinstance(h, logging.FileHandler) for h in self.logger.handlers):
-            # 创建文件 Handler，将日志写入 output_dir/train.log
             log_path = self.output_dir / "train.log"
             file_handler = logging.FileHandler(log_path, encoding='utf-8')
             formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
             file_handler.setFormatter(formatter)
             self.logger.addHandler(file_handler)
         
-        if class_weights is not None:
-            self.criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+        # 损失函数选择
+        if use_focal_loss:
+            self.logger.info("🔧 使用 Focal Loss 处理难分样本")
+            self.criterion = FocalLoss(alpha=class_weights, gamma=2.0, device=device)
         else:
-            self.criterion = nn.CrossEntropyLoss()
+            if class_weights is not None:
+                self.criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+            else:
+                self.criterion = nn.CrossEntropyLoss()
             
-        # [修复] 使用 torch.amp.GradScaler 替代 torch.cuda.amp.GradScaler
-        self.scaler = torch.amp.GradScaler('cuda')
+        self.scaler = torch.cuda.amp.GradScaler() if torch.cuda.is_available() else None # 兼容旧版 pytorch
+        # 新版 pytorch (2.0+) 建议用 torch.amp.GradScaler('cuda')，这里做兼容处理
+        if hasattr(torch.amp, 'GradScaler'):
+             self.scaler = torch.amp.GradScaler('cuda')
+
         self.optimizer = None
         self.best_val_f1 = 0.0
         self.best_epoch = 0
@@ -81,6 +128,10 @@ class Trainer:
     def train(self, num_epochs=50, learning_rate=1e-3, weight_decay=1e-4, patience=10, debug=False, resume_from=None, accumulation_steps=1):
         self.optimizer = optim.AdamW(self.model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         
+        # 新增：学习率调度器 (Cosine Annealing)
+        # T_0=10 (10个epoch一个周期), T_mult=2 (周期长度翻倍)
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=10, T_mult=2, eta_min=learning_rate/100)
+        
         start_epoch = 0
         if resume_from and resume_from.exists():
             checkpoint = torch.load(resume_from)
@@ -97,7 +148,6 @@ class Trainer:
             train_correct = 0
             train_total = 0
             
-            # pbar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{num_epochs}", leave=False)
             self.optimizer.zero_grad()
             
             for i, batch in enumerate(self.train_loader):
@@ -107,14 +157,16 @@ class Trainer:
                 sta = batch['static'].to(self.device)
                 labels = self._get_labels(batch)
                 
+                # 混合精度上下文
+                autocast_ctx = torch.amp.autocast('cuda') if hasattr(torch.amp, 'autocast') else torch.cuda.amp.autocast()
+
                 if not debug and np.random.rand() < 0.5:
                     dyn, sta, targets_a, targets_b, lam = self.mixup_data(dyn, sta, labels)
-                    # [修复] 使用 torch.amp.autocast
-                    with torch.amp.autocast('cuda'):
+                    with autocast_ctx:
                         outputs = self.model(dyn, sta)
                         loss = lam * self.criterion(outputs['logits'], targets_a) + (1 - lam) * self.criterion(outputs['logits'], targets_b)
                 else:
-                    with torch.amp.autocast('cuda'):
+                    with autocast_ctx:
                         outputs = self.model(dyn, sta)
                         loss = self.criterion(outputs['logits'], labels)
                 
@@ -129,31 +181,31 @@ class Trainer:
                 train_loss += loss.item() * accumulation_steps
                 with torch.no_grad():
                     preds = torch.argmax(outputs['logits'], dim=1)
-                    # 简单准确率：直接对比预测值和原始标签
-                    # (注：如果 Mixup 强度很大，这个指标可能会略有抖动，但在大多数情况下足以作为参考)
                     train_correct += (preds == labels).sum().item()
                     train_total += labels.size(0)
                 
                 if debug and i >= 5: break
             
+            # 更新学习率
+            current_lr = self.optimizer.param_groups[0]['lr']
+            scheduler.step()
+            
             avg_train_loss = train_loss / len(self.train_loader)
             avg_train_acc = train_correct / train_total if train_total > 0 else 0.0
             val_metrics = self.evaluate(self.val_loader)
             
-            # 更新历史记录
             self.history['train_loss'].append(avg_train_loss)
             self.history['train_acc'].append(avg_train_acc)
             self.history['val_loss'].append(val_metrics['loss'])
             self.history['val_acc'].append(val_metrics['accuracy'])
             self.history['val_f1'].append(val_metrics['f1_macro'])
 
-            # 保存历史记录到 JSON 文件
             history_path = self.output_dir / "training_history.json"
             with open(history_path, 'w', encoding='utf-8') as f:
                 json.dump(self.history, f, indent=4)
             
             log_msg = (
-                f"Epoch {epoch+1}/{num_epochs}: "
+                f"Epoch {epoch+1}/{num_epochs} [LR={current_lr:.6f}]: "
                 f"Train Loss={avg_train_loss:.4f} | "
                 f"Train Acc={avg_train_acc:.4f} | "
                 f"Val Loss={val_metrics['loss']:.4f} | "
@@ -164,7 +216,6 @@ class Trainer:
             if self.verbose:
                 self.logger.info(log_msg)
             
-            # 保存最佳模型逻辑
             if val_metrics['f1_macro'] > self.best_val_f1:
                 self.best_val_f1 = val_metrics['f1_macro']
                 self.best_epoch = epoch + 1
@@ -240,7 +291,6 @@ class Trainer:
         report = classification_report(metrics['labels'], metrics['preds'], digits=4, zero_division=0)
         print("\nTest Report:")
         print(report)
-        # 将测试报告也写入日志
         self.logger.info("\nTest Report:\n" + report)
 
         return metrics

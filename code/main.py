@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-main.py: “先大类，后小类” 分层训练流水线 (修复通道检测版)
+main.py: “先大类，后小类” 分层训练流水线 (修复 BatchNorm 单样本 Batch 问题)
 """
 
 import sys
@@ -38,15 +38,12 @@ def get_subset_indices(dataset, filter_func):
 def main():
     setup_logging()
     print("="*60)
-    print("🚀 启动分层训练流水线 (Auto-Channel Detect)")
+    print("🚀 启动分层训练流水线 (Fix: BatchNorm Drop Last)")
     print("="*60)
 
     # 1. 加载配置
-    # [修复] 只有在 main 函数中明确开启目录创建，防止多进程或模块导入时重复创建
     config = ConfigManager(str(Path(__file__).parent / 'config.yaml'), create_experiment_dir=True)
-    
     output_dir = config.get_experiment_output_dir()
-    # output_dir 已经在 ConfigManager 内部创建，但这里保留以防万一
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # 获取超参数
@@ -64,7 +61,7 @@ def main():
     # 2. 初始化组件
     encoder = LabelEncoder(config=config)
     
-    # 3. 自动归一化计算 (仅当文件不存在时)
+    # 3. 自动归一化计算
     stats_file = output_dir / 'normalization_stats.json'
     if not stats_file.exists():
         print("\n📊 正在计算全局统计量 (动态+静态)...")
@@ -90,7 +87,7 @@ def main():
         print("💡 请先运行: python code/preprocess_dataset.py")
         sys.exit(1)
     
-    # 5. [关键修改] 直接从数据集获取通道参数
+    # 5. 获取通道参数
     dyn_ch = full_train_dataset.num_channels
     sta_ch = full_train_dataset.num_static_channels
     
@@ -117,10 +114,25 @@ def main():
         num_classes=len(major_map)
     )
     
+    # [修复 1] 大类模型通常数据充足，直接启用 drop_last=True 避免 Batch=1
     major_trainer = Trainer(
         model=major_model,
-        train_dataloader=DataLoader(full_train_dataset, shuffle=True, batch_size=major_cfg['batch_size'], collate_fn=collate_fn, **common_cfg),
-        val_dataloader=DataLoader(full_val_dataset, shuffle=False, batch_size=major_cfg['batch_size'], collate_fn=collate_fn, **common_cfg),
+        train_dataloader=DataLoader(
+            full_train_dataset, 
+            shuffle=True, 
+            batch_size=major_cfg['batch_size'], 
+            collate_fn=collate_fn, 
+            drop_last=True,  # 关键修复
+            **common_cfg
+        ),
+        val_dataloader=DataLoader(
+            full_val_dataset, 
+            shuffle=False, 
+            batch_size=major_cfg['batch_size'], 
+            collate_fn=collate_fn, 
+            drop_last=False, 
+            **common_cfg
+        ),
         num_classes=len(major_map),
         target_key='major_label',
         output_dir=major_model_dir
@@ -175,10 +187,29 @@ def main():
             num_classes=num_sub_classes
         )
         
+        # [修复 2] 动态决定是否 drop_last
+        # 如果样本数 > BatchSize，则启用 drop_last=True 以防止产生余数为1的 Batch
+        # 如果样本数 < BatchSize，则禁用 drop_last=True (否则会把唯一的数据丢掉导致报错)
+        # 此时 BatchSize = 样本数 > 1 (因为 min_samples=5)，所以 BatchNorm 安全。
+        use_drop_last = len(train_indices) > detail_cfg['batch_size']
+        
         sub_trainer = Trainer(
             model=sub_model,
-            train_dataloader=DataLoader(train_subset, shuffle=True, batch_size=detail_cfg['batch_size'], collate_fn=collate_fn, **common_cfg),
-            val_dataloader=DataLoader(val_subset, shuffle=False, batch_size=detail_cfg['batch_size'], collate_fn=collate_fn, **common_cfg),
+            train_dataloader=DataLoader(
+                train_subset, 
+                shuffle=True, 
+                batch_size=detail_cfg['batch_size'], 
+                collate_fn=collate_fn, 
+                drop_last=use_drop_last, # 动态设置
+                **common_cfg
+            ),
+            val_dataloader=DataLoader(
+                val_subset, 
+                shuffle=False, 
+                batch_size=detail_cfg['batch_size'], 
+                collate_fn=collate_fn, 
+                **common_cfg
+            ),
             num_classes=num_sub_classes,
             target_key='detail_label',
             label_mapping=global_to_local,
