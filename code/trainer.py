@@ -160,8 +160,10 @@ class Trainer:
                 # 混合精度上下文
                 autocast_ctx = torch.amp.autocast('cuda') if hasattr(torch.amp, 'autocast') else torch.cuda.amp.autocast()
 
-                if not debug and np.random.rand() < 0.5:
-                    dyn, sta, targets_a, targets_b, lam = self.mixup_data(dyn, sta, labels)
+                # [修正] 降低 Mixup 触发概率 (0.5 -> 0.2) 和强度，以减轻欠拟合
+                if not debug and np.random.rand() < 0.2:
+                    # 显式降低 alpha 为 0.2
+                    dyn, sta, targets_a, targets_b, lam = self.mixup_data(dyn, sta, labels, alpha=0.2)
                     with autocast_ctx:
                         outputs = self.model(dyn, sta)
                         loss = lam * self.criterion(outputs['logits'], targets_a) + (1 - lam) * self.criterion(outputs['logits'], targets_b)

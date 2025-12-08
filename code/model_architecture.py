@@ -3,6 +3,8 @@ model_architecture.py: 双流时空融合网络 (Dual-Stream Spatio-Temporal Fus
 改进点：
 1. 引入 Residual Block 增强 SpatialEncoder
 2. 引入 Gated Fusion 机制优化动静态特征融合
+3. [本次修正] L-TAE 使用中心像素计算注意力，避免背景噪声干扰
+4. [本次修正] 调整默认 Dropout 防止欠拟合
 """
 
 import math
@@ -34,7 +36,7 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 class LightweightTemporalAttentionEncoder(nn.Module):
-    def __init__(self, in_channels: int, patch_size: int, temporal_steps: int = 12, hidden_dim: int = 64, dropout: float = 0.2):
+    def __init__(self, in_channels: int, patch_size: int, temporal_steps: int = 12, hidden_dim: int = 64, dropout: float = 0.1):
         super().__init__()
         self.pos_encoding = PositionalEncoding(d_model=in_channels, max_len=temporal_steps, dropout=dropout)
         self.temporal_attention_net = nn.Sequential(
@@ -51,15 +53,21 @@ class LightweightTemporalAttentionEncoder(nn.Module):
     
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         B, T, C, H, W = x.shape
-        # Global Average Pooling per timeframe
-        x_global = x.mean(dim=[3, 4], keepdim=False) # (B, T, C)
-        x_flat = x_global.reshape(-1, C)
+        
+        # [改进] 使用中心区域特征来计算时间注意力，而不是全图平均
+        # 避免边缘的异质背景（如农田、裸地）干扰对中心目标（如草甸）的判断
+        center_h, center_w = H // 2, W // 2
+        # 取中心像素特征 (B, T, C)
+        x_center = x[:, :, :, center_h, center_w]
+        
+        # 将中心特征用于计算 Attention Score
+        x_flat = x_center.reshape(-1, C)
         x_pos = self.pos_encoding(x_flat.unsqueeze(1)).squeeze(1).reshape(B, T, C)
         
         attention_scores = self.temporal_attention_net(x_pos).squeeze(-1) # (B, T)
         attention_weights = F.softmax(attention_scores, dim=1)
         
-        # Temporal Aggregation
+        # Temporal Aggregation: 使用计算出的权重对整个 Patch 进行加权
         weighted_x = x * attention_weights.reshape(B, T, 1, 1, 1)
         aggregated = weighted_x.sum(dim=1) # (B, C, H, W)
         output_features = self.output_projection(aggregated)
@@ -192,9 +200,9 @@ class DualStreamSpatio_TemporalFusionNetwork(nn.Module):
         num_classes: int,
         patch_size: int = 64,
         temporal_steps: int = 12,
-        hidden_dim: int = 64,
+        hidden_dim: int = 128, # [默认值建议] 保持足够容量
         fusion_dim: int = 128,
-        dropout: float = 0.2,
+        dropout: float = 0.1,  # [默认值建议] 降低默认 Dropout 以缓解欠拟合 (原0.2/0.3)
     ):
         super().__init__()
         
@@ -217,7 +225,7 @@ class DualStreamSpatio_TemporalFusionNetwork(nn.Module):
 
         # 分类头
         self.classifier = nn.Sequential(
-            nn.Linear(fusion_dim, fusion_dim), # 输入维度变为 fusion_dim (因为使用了门控融合)
+            nn.Linear(fusion_dim, fusion_dim), 
             nn.BatchNorm1d(fusion_dim),
             nn.ReLU(inplace=True),
             nn.Dropout(dropout),
