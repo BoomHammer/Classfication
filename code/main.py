@@ -35,6 +35,44 @@ def get_subset_indices(dataset, filter_func):
             indices.append(local_idx) 
     return indices
 
+def compute_class_weights(dataset, label_key, num_classes):
+    """计算类别权重，用于处理类不平衡问题
+    使用倒数频率权重：w_i = N / (n_classes * n_i)
+    """
+    class_counts = np.zeros(num_classes)
+    
+    # 处理 Subset 对象：提取原始 dataset 和索引映射
+    if hasattr(dataset, 'dataset'):
+        # Subset 对象
+        original_dataset = dataset.dataset
+        original_indices = original_dataset.indices
+        subset_indices = dataset.indices
+        df = original_dataset.points_df
+        
+        # Subset中的indices是original_dataset中的局部索引
+        # 需要映射到original_dataset的global_idx
+        for local_idx in subset_indices:
+            global_idx = original_indices[local_idx]
+            row = df.iloc[global_idx]
+            label = int(row[label_key])
+            if 0 <= label < num_classes:
+                class_counts[label] += 1
+    else:
+        # 原始 Dataset 对象
+        df = dataset.points_df
+        for local_idx, global_idx in enumerate(dataset.indices):
+            row = df.iloc[global_idx]
+            label = int(row[label_key])
+            if 0 <= label < num_classes:
+                class_counts[label] += 1
+    
+    # 计算权重：总样本数 / (类数 * 该类样本数)
+    total_samples = class_counts.sum()
+    weights = total_samples / (num_classes * (class_counts + 1e-6))
+    weights = torch.from_numpy(weights).float()
+    
+    return weights
+
 def main():
     setup_logging()
     print("="*60)
@@ -107,11 +145,19 @@ def main():
     print("🏗️  [阶段 A] 训练大类分类模型")
     print("="*60)
     
+    # 计算大类权重
+    major_weights = compute_class_weights(full_train_dataset, 'major_label', len(major_map))
+    print(f"📊 大类权重: {major_weights.tolist()}")
+    
+    major_label_smoothing = major_cfg.get('label_smoothing', config.get('model.label_smoothing', 0.05))
+    
     major_model_dir = output_dir / "major_model"
     major_model = DualStreamSpatio_TemporalFusionNetwork(
         in_channels_dynamic=dyn_ch,
         in_channels_static=sta_ch,
-        num_classes=len(major_map)
+        num_classes=len(major_map),
+        dropout=config.get('model.dropout', 0.25),  # 使用config中的dropout
+        classifier_hidden_dims=config.get('model.classifier.hidden_dims', [128, 64, 32])
     )
     
     # [修复 1] 大类模型通常数据充足，直接启用 drop_last=True 避免 Batch=1
@@ -135,7 +181,10 @@ def main():
         ),
         num_classes=len(major_map),
         target_key='major_label',
-        output_dir=major_model_dir
+        output_dir=major_model_dir,
+        class_weights=major_weights,  # 添加类别权重
+        use_focal_loss=True,  # 使用Focal Loss处理难分样本
+        label_smoothing=major_label_smoothing  # 添加标签平滑
     )
     
     major_trainer.train(
@@ -180,11 +229,19 @@ def main():
         train_subset = Subset(full_train_dataset, train_indices)
         val_subset = Subset(full_val_dataset, val_indices)
         
+        # 计算当前小类的类别权重
+        detail_weights = compute_class_weights(train_subset, 'detail_label', num_sub_classes)
+        print(f"   📊 小类权重: {detail_weights.tolist()}")
+        
+        detail_label_smoothing = detail_cfg.get('label_smoothing', config.get('model.label_smoothing', 0.1))
+        
         sub_model_dir = output_dir / f"detail_model_{major_id}_{major_name}"
         sub_model = DualStreamSpatio_TemporalFusionNetwork(
             in_channels_dynamic=dyn_ch,
             in_channels_static=sta_ch,
-            num_classes=num_sub_classes
+            num_classes=num_sub_classes,
+            dropout=config.get('model.dropout', 0.25),  # 使用config中的dropout
+            classifier_hidden_dims=config.get('model.classifier.hidden_dims', [128, 64, 32])
         )
         
         # [修复 2] 动态决定是否 drop_last
@@ -213,7 +270,10 @@ def main():
             num_classes=num_sub_classes,
             target_key='detail_label',
             label_mapping=global_to_local,
-            output_dir=sub_model_dir
+            output_dir=sub_model_dir,
+            class_weights=detail_weights,  # 添加类别权重
+            use_focal_loss=True,  # 使用Focal Loss处理难分样本
+            label_smoothing=detail_label_smoothing  # 添加标签平滑
         )
         
         sub_trainer.train(

@@ -203,10 +203,15 @@ class DualStreamSpatio_TemporalFusionNetwork(nn.Module):
         hidden_dim: int = 128, # [默认值建议] 保持足够容量
         fusion_dim: int = 128,
         dropout: float = 0.1,  # [默认值建议] 降低默认 Dropout 以缓解欠拟合 (原0.2/0.3)
+        classifier_hidden_dims: list = None,  # 分类器隐藏层维度，如 [128, 64, 32]
     ):
         super().__init__()
         
         self.num_classes = num_classes
+        
+        # 如果未指定分类器隐藏层，使用默认值
+        if classifier_hidden_dims is None:
+            classifier_hidden_dims = [128, 64, 32]
         
         # 动态分支
         self.dynamic_stream = DynamicStreamBranch(
@@ -223,14 +228,23 @@ class DualStreamSpatio_TemporalFusionNetwork(nn.Module):
         # 门控融合
         self.gated_fusion = GatedFusion(fusion_dim)
 
-        # 分类头
-        self.classifier = nn.Sequential(
-            nn.Linear(fusion_dim, fusion_dim), 
-            nn.BatchNorm1d(fusion_dim),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(fusion_dim, num_classes),
-        )
+        # 分类头 - 根据classifier_hidden_dims动态构建隐藏层
+        classifier_layers = []
+        prev_dim = fusion_dim
+        
+        for hidden_dim_size in classifier_hidden_dims:
+            classifier_layers.extend([
+                nn.Linear(prev_dim, hidden_dim_size),
+                nn.BatchNorm1d(hidden_dim_size),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout),
+            ])
+            prev_dim = hidden_dim_size
+        
+        # 输出层
+        classifier_layers.append(nn.Linear(prev_dim, num_classes))
+        
+        self.classifier = nn.Sequential(*classifier_layers)
         
         self._init_weights()
     

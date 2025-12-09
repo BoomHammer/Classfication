@@ -10,7 +10,53 @@ from sklearn.metrics import classification_report, f1_score, confusion_matrix
 import json
 
 # ============================================================================
-# Focal Loss 定义 (新增)
+# 标签平滑交叉熵损失 (Label Smoothing)
+# ============================================================================
+class LabelSmoothingLoss(nn.Module):
+    """
+    带标签平滑的交叉熵损失
+    减少模型对预测的过度自信，提高泛化性能
+    """
+    def __init__(self, num_classes, smoothing=0.1, reduction='mean', weight=None, device='cuda'):
+        super().__init__()
+        self.num_classes = num_classes
+        self.smoothing = smoothing
+        self.reduction = reduction
+        self.device = device
+        if weight is not None:
+            self.weight = weight.to(device) if isinstance(weight, torch.Tensor) else torch.tensor(weight, device=device, dtype=torch.float)
+        else:
+            self.weight = None
+    
+    def forward(self, pred, target):
+        """
+        pred: (B, C) logits
+        target: (B,) target indices
+        """
+        pred = pred.log_softmax(dim=-1)
+        
+        with torch.no_grad():
+            # 创建平滑的target分布
+            true_dist = torch.zeros_like(pred)
+            true_dist.fill_(self.smoothing / (self.num_classes - 1))
+            true_dist.scatter_(1, target.unsqueeze(1), 1.0 - self.smoothing)
+        
+        # 计算KL散度
+        loss = torch.sum(-true_dist * pred, dim=-1)
+        
+        # 应用类别权重
+        if self.weight is not None:
+            loss = loss * self.weight[target]
+        
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss
+
+# ============================================================================
+# Focal Loss 定义
 # ============================================================================
 class FocalLoss(nn.Module):
     """
@@ -61,7 +107,8 @@ class Trainer:
         target_key: str = 'label',
         verbose: bool = True,
         label_mapping: dict = None,
-        use_focal_loss: bool = True  # 新增开关
+        use_focal_loss: bool = True,
+        label_smoothing: float = 0.1  # 新增参数
     ):
         self.model = model.to(device)
         self.train_loader = train_dataloader
@@ -87,16 +134,14 @@ class Trainer:
         
         # 损失函数选择
         if use_focal_loss:
-            self.logger.info("🔧 使用 Focal Loss 处理难分样本")
+            self.logger.info(f" 🔧使用 Focal Loss (标签平滑={label_smoothing}) 处理难分样本")
             self.criterion = FocalLoss(alpha=class_weights, gamma=2.0, device=device)
         else:
-            if class_weights is not None:
-                self.criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
-            else:
-                self.criterion = nn.CrossEntropyLoss()
+            self.logger.info(f"🔧 使用 CrossEntropy Loss (标签平滑={label_smoothing})")
+            # 使用标签平滑而不是直接CrossEntropy
+            self.criterion = LabelSmoothingLoss(num_classes=num_classes, smoothing=label_smoothing, weight=class_weights, device=device)
             
-        self.scaler = torch.cuda.amp.GradScaler() if torch.cuda.is_available() else None # 兼容旧版 pytorch
-        # 新版 pytorch (2.0+) 建议用 torch.amp.GradScaler('cuda')，这里做兼容处理
+        self.scaler = torch.amp.GradScaler('cuda') if torch.cuda.is_available() else None
         if hasattr(torch.amp, 'GradScaler'):
              self.scaler = torch.amp.GradScaler('cuda')
 
@@ -128,9 +173,16 @@ class Trainer:
     def train(self, num_epochs=50, learning_rate=1e-3, weight_decay=1e-4, patience=10, debug=False, resume_from=None, accumulation_steps=1):
         self.optimizer = optim.AdamW(self.model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         
-        # 新增：学习率调度器 (Cosine Annealing)
-        # T_0=10 (10个epoch一个周期), T_mult=2 (周期长度翻倍)
-        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=10, T_mult=2, eta_min=learning_rate/100)
+        # 改进：Linear Warmup + Cosine Annealing (比CosineAnnealingWarmRestarts更稳定)
+        total_steps = num_epochs * len(self.train_loader)
+        warmup_steps = len(self.train_loader) * 2  # 前2个epoch做warmup
+        
+        def lr_lambda(current_step):
+            if current_step < warmup_steps:
+                return float(current_step) / float(max(1, warmup_steps))
+            return max(0.0, float(num_epochs - current_step / len(self.train_loader)) / float(max(1, num_epochs)))
+        
+        scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
         
         start_epoch = 0
         if resume_from and resume_from.exists():

@@ -1,0 +1,14 @@
+{
+  "major_class": "半乔木与灌木荒漠",
+  "major_id": 3,
+  "local_to_global_map": {
+    "0": 9,
+    "1": 10,
+    "2": 14
+  },
+  "global_to_local_map": {
+    "9": 0,
+    "10": 1,
+    "14": 2
+  }
+}

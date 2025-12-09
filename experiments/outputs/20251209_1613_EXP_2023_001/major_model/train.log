@@ -1,0 +1,370 @@
+2025-12-09 16:15:07,982 - INFO -  🔧使用 Focal Loss (标签平滑=0.02) 处理难分样本
+2025-12-09 16:17:57,853 - INFO - Epoch 1/400 [LR=0.000000]: Train Loss=2.1368 | Train Acc=0.1121 | Val Loss=2.4497 | Val Acc=0.1906 | Val F1=0.1464
+2025-12-09 16:17:57,953 - INFO - 💾 保存最佳模型 (F1: 0.1464)
+2025-12-09 16:20:38,541 - INFO - Epoch 2/400 [LR=0.000007]: Train Loss=2.1508 | Train Acc=0.1029 | Val Loss=2.3869 | Val Acc=0.1978 | Val F1=0.1539
+2025-12-09 16:20:38,606 - INFO - 💾 保存最佳模型 (F1: 0.1539)
+2025-12-09 16:23:18,640 - INFO - Epoch 3/400 [LR=0.000015]: Train Loss=2.0775 | Train Acc=0.1204 | Val Loss=2.3558 | Val Acc=0.2014 | Val F1=0.1234
+2025-12-09 16:25:59,949 - INFO - Epoch 4/400 [LR=0.000022]: Train Loss=2.0410 | Train Acc=0.1250 | Val Loss=2.2472 | Val Acc=0.2266 | Val F1=0.1381
+2025-12-09 16:28:39,250 - INFO - Epoch 5/400 [LR=0.000029]: Train Loss=2.0161 | Train Acc=0.1278 | Val Loss=2.2085 | Val Acc=0.2338 | Val F1=0.1828
+2025-12-09 16:28:39,321 - INFO - 💾 保存最佳模型 (F1: 0.1828)
+2025-12-09 16:31:23,487 - INFO - Epoch 6/400 [LR=0.000037]: Train Loss=1.8311 | Train Acc=0.1360 | Val Loss=2.1736 | Val Acc=0.2554 | Val F1=0.1823
+2025-12-09 16:34:08,514 - INFO - Epoch 7/400 [LR=0.000044]: Train Loss=1.8464 | Train Acc=0.1415 | Val Loss=2.0404 | Val Acc=0.2446 | Val F1=0.2028
+2025-12-09 16:34:08,564 - INFO - 💾 保存最佳模型 (F1: 0.2028)
+2025-12-09 16:36:52,275 - INFO - Epoch 8/400 [LR=0.000051]: Train Loss=1.8631 | Train Acc=0.1360 | Val Loss=1.9309 | Val Acc=0.2266 | Val F1=0.1993
+2025-12-09 16:39:37,555 - INFO - Epoch 9/400 [LR=0.000059]: Train Loss=1.7008 | Train Acc=0.1608 | Val Loss=1.8605 | Val Acc=0.2230 | Val F1=0.2012
+2025-12-09 16:42:22,479 - INFO - Epoch 10/400 [LR=0.000066]: Train Loss=1.6172 | Train Acc=0.1544 | Val Loss=1.8626 | Val Acc=0.2554 | Val F1=0.2240
+2025-12-09 16:42:22,590 - INFO - 💾 保存最佳模型 (F1: 0.2240)
+2025-12-09 16:45:04,873 - INFO - Epoch 11/400 [LR=0.000074]: Train Loss=1.5476 | Train Acc=0.1562 | Val Loss=1.7448 | Val Acc=0.2410 | Val F1=0.2224
+2025-12-09 16:47:46,798 - INFO - Epoch 12/400 [LR=0.000081]: Train Loss=1.5565 | Train Acc=0.1673 | Val Loss=1.7479 | Val Acc=0.2626 | Val F1=0.2331
+2025-12-09 16:47:46,881 - INFO - 💾 保存最佳模型 (F1: 0.2331)
+2025-12-09 16:50:32,146 - INFO - Epoch 13/400 [LR=0.000088]: Train Loss=1.4932 | Train Acc=0.1553 | Val Loss=1.6605 | Val Acc=0.2914 | Val F1=0.2963
+2025-12-09 16:50:32,236 - INFO - 💾 保存最佳模型 (F1: 0.2963)
+2025-12-09 16:53:11,036 - INFO - Epoch 14/400 [LR=0.000096]: Train Loss=1.3825 | Train Acc=0.1838 | Val Loss=1.5848 | Val Acc=0.2878 | Val F1=0.2911
+2025-12-09 16:55:52,114 - INFO - Epoch 15/400 [LR=0.000103]: Train Loss=1.3776 | Train Acc=0.1847 | Val Loss=1.6140 | Val Acc=0.2878 | Val F1=0.2868
+2025-12-09 16:58:34,362 - INFO - Epoch 16/400 [LR=0.000110]: Train Loss=1.2975 | Train Acc=0.1985 | Val Loss=1.5219 | Val Acc=0.2842 | Val F1=0.2865
+2025-12-09 17:01:18,572 - INFO - Epoch 17/400 [LR=0.000118]: Train Loss=1.3205 | Train Acc=0.1958 | Val Loss=1.5213 | Val Acc=0.3345 | Val F1=0.3345
+2025-12-09 17:01:18,656 - INFO - 💾 保存最佳模型 (F1: 0.3345)
+2025-12-09 17:04:07,496 - INFO - Epoch 18/400 [LR=0.000125]: Train Loss=1.3124 | Train Acc=0.2215 | Val Loss=1.4775 | Val Acc=0.3633 | Val F1=0.3477
+2025-12-09 17:04:07,577 - INFO - 💾 保存最佳模型 (F1: 0.3477)
+2025-12-09 17:06:52,454 - INFO - Epoch 19/400 [LR=0.000132]: Train Loss=1.2547 | Train Acc=0.2307 | Val Loss=1.4587 | Val Acc=0.3237 | Val F1=0.3195
+2025-12-09 17:09:33,553 - INFO - Epoch 20/400 [LR=0.000140]: Train Loss=1.2866 | Train Acc=0.2233 | Val Loss=1.4021 | Val Acc=0.3525 | Val F1=0.3446
+2025-12-09 17:12:15,374 - INFO - Epoch 21/400 [LR=0.000147]: Train Loss=1.1595 | Train Acc=0.2353 | Val Loss=1.3878 | Val Acc=0.3705 | Val F1=0.3442
+2025-12-09 17:14:58,860 - INFO - Epoch 22/400 [LR=0.000154]: Train Loss=1.1437 | Train Acc=0.2564 | Val Loss=1.4342 | Val Acc=0.4604 | Val F1=0.4079
+2025-12-09 17:14:58,931 - INFO - 💾 保存最佳模型 (F1: 0.4079)
+2025-12-09 17:17:38,481 - INFO - Epoch 23/400 [LR=0.000162]: Train Loss=1.1246 | Train Acc=0.2675 | Val Loss=1.3563 | Val Acc=0.4281 | Val F1=0.3693
+2025-12-09 17:20:27,523 - INFO - Epoch 24/400 [LR=0.000169]: Train Loss=0.9893 | Train Acc=0.2895 | Val Loss=1.3006 | Val Acc=0.4496 | Val F1=0.3995
+2025-12-09 17:23:07,525 - INFO - Epoch 25/400 [LR=0.000176]: Train Loss=1.0862 | Train Acc=0.2987 | Val Loss=1.3167 | Val Acc=0.4388 | Val F1=0.3991
+2025-12-09 17:25:50,722 - INFO - Epoch 26/400 [LR=0.000184]: Train Loss=1.0419 | Train Acc=0.2812 | Val Loss=1.3874 | Val Acc=0.4820 | Val F1=0.4276
+2025-12-09 17:25:50,801 - INFO - 💾 保存最佳模型 (F1: 0.4276)
+2025-12-09 17:28:35,969 - INFO - Epoch 27/400 [LR=0.000191]: Train Loss=0.9888 | Train Acc=0.3217 | Val Loss=1.3007 | Val Acc=0.4856 | Val F1=0.4401
+2025-12-09 17:28:36,074 - INFO - 💾 保存最佳模型 (F1: 0.4401)
+2025-12-09 17:31:16,299 - INFO - Epoch 28/400 [LR=0.000199]: Train Loss=0.9737 | Train Acc=0.3309 | Val Loss=1.3497 | Val Acc=0.4856 | Val F1=0.4339
+2025-12-09 17:33:56,847 - INFO - Epoch 29/400 [LR=0.000206]: Train Loss=0.8727 | Train Acc=0.3355 | Val Loss=1.2257 | Val Acc=0.5036 | Val F1=0.4519
+2025-12-09 17:33:56,937 - INFO - 💾 保存最佳模型 (F1: 0.4519)
+2025-12-09 17:36:38,563 - INFO - Epoch 30/400 [LR=0.000213]: Train Loss=0.9763 | Train Acc=0.3474 | Val Loss=1.2499 | Val Acc=0.4892 | Val F1=0.4246
+2025-12-09 17:39:18,497 - INFO - Epoch 31/400 [LR=0.000221]: Train Loss=0.8675 | Train Acc=0.3658 | Val Loss=1.1759 | Val Acc=0.5144 | Val F1=0.4520
+2025-12-09 17:39:18,550 - INFO - 💾 保存最佳模型 (F1: 0.4520)
+2025-12-09 17:42:00,881 - INFO - Epoch 32/400 [LR=0.000228]: Train Loss=0.8858 | Train Acc=0.3704 | Val Loss=1.2320 | Val Acc=0.5180 | Val F1=0.4627
+2025-12-09 17:42:00,961 - INFO - 💾 保存最佳模型 (F1: 0.4627)
+2025-12-09 17:44:46,657 - INFO - Epoch 33/400 [LR=0.000235]: Train Loss=0.9211 | Train Acc=0.3943 | Val Loss=1.2925 | Val Acc=0.5072 | Val F1=0.4613
+2025-12-09 17:47:25,660 - INFO - Epoch 34/400 [LR=0.000243]: Train Loss=0.9177 | Train Acc=0.3438 | Val Loss=1.1625 | Val Acc=0.5252 | Val F1=0.4775
+2025-12-09 17:47:25,715 - INFO - 💾 保存最佳模型 (F1: 0.4775)
+2025-12-09 17:50:05,189 - INFO - Epoch 35/400 [LR=0.000250]: Train Loss=0.8863 | Train Acc=0.3585 | Val Loss=1.2204 | Val Acc=0.5216 | Val F1=0.4620
+2025-12-09 17:52:46,615 - INFO - Epoch 36/400 [LR=0.000257]: Train Loss=0.9230 | Train Acc=0.3732 | Val Loss=1.2653 | Val Acc=0.5504 | Val F1=0.4879
+2025-12-09 17:52:46,671 - INFO - 💾 保存最佳模型 (F1: 0.4879)
+2025-12-09 17:55:25,376 - INFO - Epoch 37/400 [LR=0.000265]: Train Loss=0.8579 | Train Acc=0.3851 | Val Loss=1.2033 | Val Acc=0.5072 | Val F1=0.4537
+2025-12-09 17:58:05,376 - INFO - Epoch 38/400 [LR=0.000272]: Train Loss=0.8502 | Train Acc=0.4017 | Val Loss=1.1832 | Val Acc=0.5252 | Val F1=0.4753
+2025-12-09 18:00:48,630 - INFO - Epoch 39/400 [LR=0.000279]: Train Loss=0.8187 | Train Acc=0.4044 | Val Loss=1.1518 | Val Acc=0.5612 | Val F1=0.4932
+2025-12-09 18:00:48,691 - INFO - 💾 保存最佳模型 (F1: 0.4932)
+2025-12-09 18:03:29,758 - INFO - Epoch 40/400 [LR=0.000287]: Train Loss=0.8958 | Train Acc=0.4044 | Val Loss=1.1884 | Val Acc=0.5216 | Val F1=0.4820
+2025-12-09 18:06:09,182 - INFO - Epoch 41/400 [LR=0.000294]: Train Loss=0.7861 | Train Acc=0.4136 | Val Loss=1.1648 | Val Acc=0.5144 | Val F1=0.4620
+2025-12-09 18:08:56,786 - INFO - Epoch 42/400 [LR=0.000301]: Train Loss=0.7600 | Train Acc=0.4044 | Val Loss=1.1470 | Val Acc=0.5647 | Val F1=0.5015
+2025-12-09 18:08:56,881 - INFO - 💾 保存最佳模型 (F1: 0.5015)
+2025-12-09 18:11:34,729 - INFO - Epoch 43/400 [LR=0.000309]: Train Loss=0.7143 | Train Acc=0.3934 | Val Loss=1.1118 | Val Acc=0.5612 | Val F1=0.4940
+2025-12-09 18:14:16,393 - INFO - Epoch 44/400 [LR=0.000316]: Train Loss=0.7135 | Train Acc=0.4320 | Val Loss=1.0654 | Val Acc=0.5396 | Val F1=0.4856
+2025-12-09 18:16:59,974 - INFO - Epoch 45/400 [LR=0.000324]: Train Loss=0.7124 | Train Acc=0.4311 | Val Loss=1.0824 | Val Acc=0.5432 | Val F1=0.5003
+2025-12-09 18:19:40,888 - INFO - Epoch 46/400 [LR=0.000331]: Train Loss=0.7020 | Train Acc=0.4825 | Val Loss=1.2072 | Val Acc=0.5468 | Val F1=0.4990
+2025-12-09 18:22:23,145 - INFO - Epoch 47/400 [LR=0.000338]: Train Loss=0.7143 | Train Acc=0.4228 | Val Loss=1.1756 | Val Acc=0.5144 | Val F1=0.4625
+2025-12-09 18:25:05,883 - INFO - Epoch 48/400 [LR=0.000346]: Train Loss=0.7098 | Train Acc=0.4108 | Val Loss=1.3592 | Val Acc=0.4784 | Val F1=0.4359
+2025-12-09 18:27:45,688 - INFO - Epoch 49/400 [LR=0.000353]: Train Loss=0.7429 | Train Acc=0.3594 | Val Loss=1.2802 | Val Acc=0.4928 | Val F1=0.4389
+2025-12-09 18:30:26,248 - INFO - Epoch 50/400 [LR=0.000360]: Train Loss=0.7249 | Train Acc=0.3869 | Val Loss=1.1448 | Val Acc=0.5396 | Val F1=0.4590
+2025-12-09 18:33:06,177 - INFO - Epoch 51/400 [LR=0.000368]: Train Loss=0.6905 | Train Acc=0.3888 | Val Loss=1.2072 | Val Acc=0.5144 | Val F1=0.4722
+2025-12-09 18:35:47,918 - INFO - Epoch 52/400 [LR=0.000375]: Train Loss=0.7579 | Train Acc=0.3768 | Val Loss=1.0579 | Val Acc=0.5216 | Val F1=0.4721
+2025-12-09 18:38:30,919 - INFO - Epoch 53/400 [LR=0.000382]: Train Loss=0.6378 | Train Acc=0.4200 | Val Loss=1.3150 | Val Acc=0.5324 | Val F1=0.4742
+2025-12-09 18:41:12,570 - INFO - Epoch 54/400 [LR=0.000390]: Train Loss=0.7077 | Train Acc=0.4090 | Val Loss=1.1443 | Val Acc=0.5683 | Val F1=0.5018
+2025-12-09 18:41:12,617 - INFO - 💾 保存最佳模型 (F1: 0.5018)
+2025-12-09 18:43:51,839 - INFO - Epoch 55/400 [LR=0.000397]: Train Loss=0.6241 | Train Acc=0.4421 | Val Loss=1.0510 | Val Acc=0.5432 | Val F1=0.4911
+2025-12-09 18:46:34,332 - INFO - Epoch 56/400 [LR=0.000404]: Train Loss=0.6745 | Train Acc=0.4274 | Val Loss=1.0312 | Val Acc=0.5144 | Val F1=0.4729
+2025-12-09 18:49:13,542 - INFO - Epoch 57/400 [LR=0.000412]: Train Loss=0.7218 | Train Acc=0.4026 | Val Loss=1.2045 | Val Acc=0.5396 | Val F1=0.4898
+2025-12-09 18:51:53,323 - INFO - Epoch 58/400 [LR=0.000419]: Train Loss=0.7842 | Train Acc=0.4200 | Val Loss=1.1579 | Val Acc=0.4353 | Val F1=0.4098
+2025-12-09 18:54:33,429 - INFO - Epoch 59/400 [LR=0.000426]: Train Loss=0.7792 | Train Acc=0.4026 | Val Loss=1.1121 | Val Acc=0.4712 | Val F1=0.4331
+2025-12-09 18:57:17,740 - INFO - Epoch 60/400 [LR=0.000434]: Train Loss=0.6528 | Train Acc=0.4237 | Val Loss=1.1477 | Val Acc=0.4892 | Val F1=0.4489
+2025-12-09 18:59:54,408 - INFO - Epoch 61/400 [LR=0.000441]: Train Loss=0.7659 | Train Acc=0.3787 | Val Loss=1.1765 | Val Acc=0.4928 | Val F1=0.4664
+2025-12-09 19:02:35,382 - INFO - Epoch 62/400 [LR=0.000449]: Train Loss=0.7140 | Train Acc=0.4210 | Val Loss=1.1007 | Val Acc=0.5288 | Val F1=0.4792
+2025-12-09 19:05:15,084 - INFO - Epoch 63/400 [LR=0.000456]: Train Loss=0.5642 | Train Acc=0.4945 | Val Loss=1.0534 | Val Acc=0.5540 | Val F1=0.4976
+2025-12-09 19:07:53,127 - INFO - Epoch 64/400 [LR=0.000463]: Train Loss=0.6173 | Train Acc=0.4467 | Val Loss=1.1093 | Val Acc=0.6079 | Val F1=0.5515
+2025-12-09 19:07:53,274 - INFO - 💾 保存最佳模型 (F1: 0.5515)
+2025-12-09 19:10:34,509 - INFO - Epoch 65/400 [LR=0.000471]: Train Loss=0.7354 | Train Acc=0.4062 | Val Loss=1.0884 | Val Acc=0.4676 | Val F1=0.4405
+2025-12-09 19:13:19,524 - INFO - Epoch 66/400 [LR=0.000478]: Train Loss=0.6532 | Train Acc=0.4154 | Val Loss=1.1976 | Val Acc=0.4964 | Val F1=0.4619
+2025-12-09 19:15:59,533 - INFO - Epoch 67/400 [LR=0.000485]: Train Loss=0.7537 | Train Acc=0.4026 | Val Loss=1.2188 | Val Acc=0.4784 | Val F1=0.4364
+2025-12-09 19:18:43,755 - INFO - Epoch 68/400 [LR=0.000493]: Train Loss=0.6974 | Train Acc=0.4035 | Val Loss=1.1612 | Val Acc=0.5396 | Val F1=0.4916
+2025-12-09 19:21:25,586 - INFO - Epoch 69/400 [LR=0.000498]: Train Loss=0.5597 | Train Acc=0.4522 | Val Loss=1.0843 | Val Acc=0.5791 | Val F1=0.5174
+2025-12-09 19:24:09,968 - INFO - Epoch 70/400 [LR=0.000497]: Train Loss=0.6664 | Train Acc=0.4844 | Val Loss=1.0487 | Val Acc=0.5827 | Val F1=0.5244
+2025-12-09 19:26:52,045 - INFO - Epoch 71/400 [LR=0.000497]: Train Loss=0.5793 | Train Acc=0.4890 | Val Loss=1.1149 | Val Acc=0.5647 | Val F1=0.5123
+2025-12-09 19:29:36,096 - INFO - Epoch 72/400 [LR=0.000497]: Train Loss=0.5417 | Train Acc=0.4651 | Val Loss=1.2478 | Val Acc=0.5683 | Val F1=0.4965
+2025-12-09 19:32:15,163 - INFO - Epoch 73/400 [LR=0.000497]: Train Loss=0.5335 | Train Acc=0.4825 | Val Loss=1.0937 | Val Acc=0.5683 | Val F1=0.5077
+2025-12-09 19:34:58,323 - INFO - Epoch 74/400 [LR=0.000497]: Train Loss=0.5083 | Train Acc=0.5000 | Val Loss=1.0161 | Val Acc=0.6115 | Val F1=0.5497
+2025-12-09 19:37:42,360 - INFO - Epoch 75/400 [LR=0.000497]: Train Loss=0.4864 | Train Acc=0.5322 | Val Loss=1.1193 | Val Acc=0.6223 | Val F1=0.5808
+2025-12-09 19:37:42,433 - INFO - 💾 保存最佳模型 (F1: 0.5808)
+2025-12-09 19:40:24,307 - INFO - Epoch 76/400 [LR=0.000497]: Train Loss=0.5318 | Train Acc=0.5147 | Val Loss=0.9673 | Val Acc=0.6259 | Val F1=0.5604
+2025-12-09 19:43:05,077 - INFO - Epoch 77/400 [LR=0.000497]: Train Loss=0.4593 | Train Acc=0.5064 | Val Loss=1.0107 | Val Acc=0.6079 | Val F1=0.5496
+2025-12-09 19:45:44,627 - INFO - Epoch 78/400 [LR=0.000497]: Train Loss=0.5354 | Train Acc=0.5101 | Val Loss=1.0673 | Val Acc=0.5863 | Val F1=0.5619
+2025-12-09 19:48:26,360 - INFO - Epoch 79/400 [LR=0.000497]: Train Loss=0.5218 | Train Acc=0.4798 | Val Loss=1.0761 | Val Acc=0.5863 | Val F1=0.5374
+2025-12-09 19:51:09,654 - INFO - Epoch 80/400 [LR=0.000497]: Train Loss=0.4636 | Train Acc=0.4669 | Val Loss=1.0579 | Val Acc=0.6475 | Val F1=0.5975
+2025-12-09 19:51:09,713 - INFO - 💾 保存最佳模型 (F1: 0.5975)
+2025-12-09 19:53:52,734 - INFO - Epoch 81/400 [LR=0.000497]: Train Loss=0.4811 | Train Acc=0.5377 | Val Loss=1.1878 | Val Acc=0.5540 | Val F1=0.4960
+2025-12-09 19:56:38,416 - INFO - Epoch 82/400 [LR=0.000497]: Train Loss=0.6422 | Train Acc=0.5175 | Val Loss=1.0885 | Val Acc=0.5863 | Val F1=0.5121
+2025-12-09 19:59:21,279 - INFO - Epoch 83/400 [LR=0.000497]: Train Loss=0.6066 | Train Acc=0.4669 | Val Loss=1.0165 | Val Acc=0.5791 | Val F1=0.5326
+2025-12-09 20:01:59,941 - INFO - Epoch 84/400 [LR=0.000497]: Train Loss=0.7261 | Train Acc=0.4256 | Val Loss=1.2451 | Val Acc=0.4856 | Val F1=0.4520
+2025-12-09 20:04:39,527 - INFO - Epoch 85/400 [LR=0.000497]: Train Loss=0.6664 | Train Acc=0.4559 | Val Loss=0.9292 | Val Acc=0.5971 | Val F1=0.5426
+2025-12-09 20:07:19,406 - INFO - Epoch 86/400 [LR=0.000497]: Train Loss=0.5669 | Train Acc=0.4531 | Val Loss=1.0009 | Val Acc=0.5504 | Val F1=0.4971
+2025-12-09 20:09:56,075 - INFO - Epoch 87/400 [LR=0.000497]: Train Loss=0.6332 | Train Acc=0.4485 | Val Loss=0.9555 | Val Acc=0.5683 | Val F1=0.5087
+2025-12-09 20:12:39,107 - INFO - Epoch 88/400 [LR=0.000497]: Train Loss=0.5335 | Train Acc=0.4522 | Val Loss=0.9766 | Val Acc=0.5540 | Val F1=0.4982
+2025-12-09 20:15:19,455 - INFO - Epoch 89/400 [LR=0.000497]: Train Loss=0.4952 | Train Acc=0.4752 | Val Loss=0.9399 | Val Acc=0.6223 | Val F1=0.5607
+2025-12-09 20:17:59,621 - INFO - Epoch 90/400 [LR=0.000497]: Train Loss=0.4878 | Train Acc=0.5211 | Val Loss=1.0096 | Val Acc=0.6547 | Val F1=0.5828
+2025-12-09 20:20:41,771 - INFO - Epoch 91/400 [LR=0.000497]: Train Loss=0.3975 | Train Acc=0.5312 | Val Loss=0.9963 | Val Acc=0.6619 | Val F1=0.6126
+2025-12-09 20:20:41,836 - INFO - 💾 保存最佳模型 (F1: 0.6126)
+2025-12-09 20:23:24,297 - INFO - Epoch 92/400 [LR=0.000497]: Train Loss=0.4607 | Train Acc=0.5643 | Val Loss=0.9610 | Val Acc=0.6763 | Val F1=0.6221
+2025-12-09 20:23:24,351 - INFO - 💾 保存最佳模型 (F1: 0.6221)
+2025-12-09 20:26:06,379 - INFO - Epoch 93/400 [LR=0.000497]: Train Loss=0.4604 | Train Acc=0.5257 | Val Loss=1.0883 | Val Acc=0.6763 | Val F1=0.6218
+2025-12-09 20:28:46,165 - INFO - Epoch 94/400 [LR=0.000497]: Train Loss=0.5108 | Train Acc=0.4963 | Val Loss=1.2679 | Val Acc=0.5468 | Val F1=0.5238
+2025-12-09 20:31:24,936 - INFO - Epoch 95/400 [LR=0.000497]: Train Loss=0.6020 | Train Acc=0.4779 | Val Loss=1.2553 | Val Acc=0.6079 | Val F1=0.5575
+2025-12-09 20:34:04,160 - INFO - Epoch 96/400 [LR=0.000497]: Train Loss=0.5401 | Train Acc=0.4816 | Val Loss=1.2821 | Val Acc=0.5827 | Val F1=0.5222
+2025-12-09 20:36:43,442 - INFO - Epoch 97/400 [LR=0.000496]: Train Loss=0.5132 | Train Acc=0.4816 | Val Loss=1.2765 | Val Acc=0.5791 | Val F1=0.5250
+2025-12-09 20:39:24,952 - INFO - Epoch 98/400 [LR=0.000496]: Train Loss=0.4472 | Train Acc=0.5046 | Val Loss=1.1271 | Val Acc=0.6583 | Val F1=0.5857
+2025-12-09 20:42:04,164 - INFO - Epoch 99/400 [LR=0.000496]: Train Loss=0.4470 | Train Acc=0.4917 | Val Loss=1.2172 | Val Acc=0.5755 | Val F1=0.5294
+2025-12-09 20:44:44,284 - INFO - Epoch 100/400 [LR=0.000496]: Train Loss=0.4269 | Train Acc=0.5064 | Val Loss=1.1829 | Val Acc=0.6043 | Val F1=0.5552
+2025-12-09 20:47:25,193 - INFO - Epoch 101/400 [LR=0.000496]: Train Loss=0.4081 | Train Acc=0.5478 | Val Loss=1.1809 | Val Acc=0.6259 | Val F1=0.5876
+2025-12-09 20:50:00,584 - INFO - Epoch 102/400 [LR=0.000496]: Train Loss=0.5877 | Train Acc=0.4844 | Val Loss=1.1878 | Val Acc=0.6007 | Val F1=0.5496
+2025-12-09 20:52:39,402 - INFO - Epoch 103/400 [LR=0.000496]: Train Loss=0.5520 | Train Acc=0.4963 | Val Loss=1.2088 | Val Acc=0.5755 | Val F1=0.5480
+2025-12-09 20:55:30,545 - INFO - Epoch 104/400 [LR=0.000496]: Train Loss=0.4136 | Train Acc=0.5239 | Val Loss=1.2974 | Val Acc=0.5935 | Val F1=0.5546
+2025-12-09 20:58:13,641 - INFO - Epoch 105/400 [LR=0.000496]: Train Loss=0.5186 | Train Acc=0.4954 | Val Loss=1.2816 | Val Acc=0.5324 | Val F1=0.4985
+2025-12-09 21:00:50,962 - INFO - Epoch 106/400 [LR=0.000496]: Train Loss=0.5439 | Train Acc=0.4770 | Val Loss=1.2065 | Val Acc=0.5612 | Val F1=0.5067
+2025-12-09 21:03:24,372 - INFO - Epoch 107/400 [LR=0.000496]: Train Loss=0.6173 | Train Acc=0.4586 | Val Loss=1.2295 | Val Acc=0.5540 | Val F1=0.5161
+2025-12-09 21:06:05,470 - INFO - Epoch 108/400 [LR=0.000496]: Train Loss=0.5421 | Train Acc=0.4752 | Val Loss=1.1508 | Val Acc=0.5612 | Val F1=0.5121
+2025-12-09 21:08:47,438 - INFO - Epoch 109/400 [LR=0.000496]: Train Loss=0.4021 | Train Acc=0.4972 | Val Loss=1.1546 | Val Acc=0.6079 | Val F1=0.5718
+2025-12-09 21:11:30,813 - INFO - Epoch 110/400 [LR=0.000496]: Train Loss=0.4149 | Train Acc=0.5074 | Val Loss=1.2644 | Val Acc=0.6259 | Val F1=0.5999
+2025-12-09 21:14:18,292 - INFO - Epoch 111/400 [LR=0.000496]: Train Loss=0.4017 | Train Acc=0.5193 | Val Loss=1.3441 | Val Acc=0.6079 | Val F1=0.5853
+2025-12-09 21:16:55,422 - INFO - Epoch 112/400 [LR=0.000496]: Train Loss=0.4103 | Train Acc=0.5322 | Val Loss=1.2758 | Val Acc=0.6079 | Val F1=0.5134
+2025-12-09 21:19:34,174 - INFO - Epoch 113/400 [LR=0.000496]: Train Loss=0.6324 | Train Acc=0.5083 | Val Loss=1.6338 | Val Acc=0.6619 | Val F1=0.5747
+2025-12-09 21:22:12,311 - INFO - Epoch 114/400 [LR=0.000496]: Train Loss=0.5553 | Train Acc=0.4715 | Val Loss=1.2941 | Val Acc=0.6151 | Val F1=0.5772
+2025-12-09 21:24:51,643 - INFO - Epoch 115/400 [LR=0.000496]: Train Loss=0.6136 | Train Acc=0.4678 | Val Loss=1.3205 | Val Acc=0.5719 | Val F1=0.5236
+2025-12-09 21:27:33,057 - INFO - Epoch 116/400 [LR=0.000496]: Train Loss=0.5669 | Train Acc=0.4586 | Val Loss=1.8432 | Val Acc=0.4964 | Val F1=0.4215
+2025-12-09 21:30:12,197 - INFO - Epoch 117/400 [LR=0.000496]: Train Loss=0.5629 | Train Acc=0.4779 | Val Loss=1.4168 | Val Acc=0.5576 | Val F1=0.5108
+2025-12-09 21:30:12,198 - INFO - 🛑 Early stopping at epoch 117
+2025-12-09 21:30:12,395 - INFO -  🔧使用 Focal Loss (标签平滑=0.02) 处理难分样本
+2025-12-09 21:31:32,433 - INFO - Epoch 1/300 [LR=0.000000]: Train Loss=3081361.0227 | Train Acc=0.1761 | Val Loss=2543455.4062 | Val Acc=0.0741 | Val F1=0.0340
+2025-12-09 21:31:32,460 - INFO - 💾 保存最佳模型 (F1: 0.0340)
+2025-12-09 21:32:54,808 - INFO - Epoch 2/300 [LR=0.000014]: Train Loss=2944118.9545 | Train Acc=0.2045 | Val Loss=2572741.9375 | Val Acc=0.1296 | Val F1=0.0782
+2025-12-09 21:32:54,924 - INFO - 💾 保存最佳模型 (F1: 0.0782)
+2025-12-09 21:34:21,899 - INFO - Epoch 3/300 [LR=0.000027]: Train Loss=2984563.7727 | Train Acc=0.2557 | Val Loss=2356675.2188 | Val Acc=0.2037 | Val F1=0.1693
+2025-12-09 21:34:21,986 - INFO - 💾 保存最佳模型 (F1: 0.1693)
+2025-12-09 21:35:45,742 - INFO - Epoch 4/300 [LR=0.000041]: Train Loss=2906181.1591 | Train Acc=0.2045 | Val Loss=2235463.9688 | Val Acc=0.2222 | Val F1=0.1905
+2025-12-09 21:35:45,824 - INFO - 💾 保存最佳模型 (F1: 0.1905)
+2025-12-09 21:37:07,702 - INFO - Epoch 5/300 [LR=0.000055]: Train Loss=2844259.5227 | Train Acc=0.2159 | Val Loss=2142238.6875 | Val Acc=0.2593 | Val F1=0.1298
+2025-12-09 21:38:34,519 - INFO - Epoch 6/300 [LR=0.000068]: Train Loss=2732955.8068 | Train Acc=0.2216 | Val Loss=1992990.5625 | Val Acc=0.3333 | Val F1=0.2119
+2025-12-09 21:38:34,593 - INFO - 💾 保存最佳模型 (F1: 0.2119)
+2025-12-09 21:39:54,647 - INFO - Epoch 7/300 [LR=0.000082]: Train Loss=2767829.2955 | Train Acc=0.2727 | Val Loss=1880866.8750 | Val Acc=0.4444 | Val F1=0.3478
+2025-12-09 21:39:54,731 - INFO - 💾 保存最佳模型 (F1: 0.3478)
+2025-12-09 21:41:18,574 - INFO - Epoch 8/300 [LR=0.000095]: Train Loss=2522613.8068 | Train Acc=0.2670 | Val Loss=1804895.4688 | Val Acc=0.3704 | Val F1=0.2747
+2025-12-09 21:42:39,973 - INFO - Epoch 9/300 [LR=0.000109]: Train Loss=2595210.8182 | Train Acc=0.2727 | Val Loss=1770129.6562 | Val Acc=0.3519 | Val F1=0.2551
+2025-12-09 21:44:01,881 - INFO - Epoch 10/300 [LR=0.000123]: Train Loss=2365839.8750 | Train Acc=0.2841 | Val Loss=1776266.8438 | Val Acc=0.2963 | Val F1=0.1673
+2025-12-09 21:45:26,124 - INFO - Epoch 11/300 [LR=0.000136]: Train Loss=2376687.2159 | Train Acc=0.2727 | Val Loss=1738051.5938 | Val Acc=0.3519 | Val F1=0.1990
+2025-12-09 21:46:50,893 - INFO - Epoch 12/300 [LR=0.000150]: Train Loss=2229916.3409 | Train Acc=0.3011 | Val Loss=1723957.1719 | Val Acc=0.3704 | Val F1=0.2086
+2025-12-09 21:48:14,455 - INFO - Epoch 13/300 [LR=0.000164]: Train Loss=2162925.3750 | Train Acc=0.3125 | Val Loss=1654572.0469 | Val Acc=0.4444 | Val F1=0.3237
+2025-12-09 21:49:39,206 - INFO - Epoch 14/300 [LR=0.000177]: Train Loss=2109675.3807 | Train Acc=0.3295 | Val Loss=1636407.6875 | Val Acc=0.4074 | Val F1=0.2508
+2025-12-09 21:51:01,946 - INFO - Epoch 15/300 [LR=0.000191]: Train Loss=2040029.8295 | Train Acc=0.3409 | Val Loss=1634135.4688 | Val Acc=0.3889 | Val F1=0.2306
+2025-12-09 21:52:26,820 - INFO - Epoch 16/300 [LR=0.000205]: Train Loss=1895002.4205 | Train Acc=0.4034 | Val Loss=1632377.0625 | Val Acc=0.3519 | Val F1=0.2462
+2025-12-09 21:53:50,135 - INFO - Epoch 17/300 [LR=0.000218]: Train Loss=2063189.6193 | Train Acc=0.3693 | Val Loss=1563676.4844 | Val Acc=0.3333 | Val F1=0.2390
+2025-12-09 21:55:12,228 - INFO - Epoch 18/300 [LR=0.000232]: Train Loss=1943418.3750 | Train Acc=0.3352 | Val Loss=1585374.3125 | Val Acc=0.3519 | Val F1=0.2452
+2025-12-09 21:56:35,461 - INFO - Epoch 19/300 [LR=0.000245]: Train Loss=1878430.5909 | Train Acc=0.3693 | Val Loss=1550870.4062 | Val Acc=0.3333 | Val F1=0.2211
+2025-12-09 21:58:00,676 - INFO - Epoch 20/300 [LR=0.000259]: Train Loss=1888159.6250 | Train Acc=0.3523 | Val Loss=1555882.4844 | Val Acc=0.3333 | Val F1=0.2223
+2025-12-09 21:59:24,123 - INFO - Epoch 21/300 [LR=0.000273]: Train Loss=1678107.3409 | Train Acc=0.3864 | Val Loss=1479154.9375 | Val Acc=0.3704 | Val F1=0.2444
+2025-12-09 22:00:46,847 - INFO - Epoch 22/300 [LR=0.000286]: Train Loss=1725786.3295 | Train Acc=0.4375 | Val Loss=1502419.4531 | Val Acc=0.3704 | Val F1=0.2472
+2025-12-09 22:02:12,368 - INFO - Epoch 23/300 [LR=0.000298]: Train Loss=1700921.1080 | Train Acc=0.3352 | Val Loss=1542195.0938 | Val Acc=0.3889 | Val F1=0.2606
+2025-12-09 22:03:33,981 - INFO - Epoch 24/300 [LR=0.000298]: Train Loss=1784957.9545 | Train Acc=0.3750 | Val Loss=1533989.7500 | Val Acc=0.3889 | Val F1=0.2416
+2025-12-09 22:04:56,911 - INFO - Epoch 25/300 [LR=0.000298]: Train Loss=1715724.7045 | Train Acc=0.3807 | Val Loss=1436612.9375 | Val Acc=0.4259 | Val F1=0.3344
+2025-12-09 22:06:22,160 - INFO - Epoch 26/300 [LR=0.000298]: Train Loss=1410370.4432 | Train Acc=0.4432 | Val Loss=1396367.1562 | Val Acc=0.4630 | Val F1=0.3252
+2025-12-09 22:07:47,464 - INFO - Epoch 27/300 [LR=0.000298]: Train Loss=1527846.7557 | Train Acc=0.4602 | Val Loss=1308870.9375 | Val Acc=0.4259 | Val F1=0.3324
+2025-12-09 22:07:47,464 - INFO - 🛑 Early stopping at epoch 27
+2025-12-09 22:07:47,710 - INFO -  🔧使用 Focal Loss (标签平滑=0.02) 处理难分样本
+2025-12-09 22:09:07,504 - INFO - Epoch 1/300 [LR=0.000000]: Train Loss=0.0000 | Train Acc=0.2292 | Val Loss=0.0000 | Val Acc=0.5333 | Val F1=0.2319
+2025-12-09 22:09:07,575 - INFO - 💾 保存最佳模型 (F1: 0.2319)
+2025-12-09 22:10:29,232 - INFO - Epoch 2/300 [LR=0.000050]: Train Loss=0.0000 | Train Acc=0.3958 | Val Loss=0.0000 | Val Acc=0.5333 | Val F1=0.2319
+2025-12-09 22:11:47,820 - INFO - Epoch 3/300 [LR=0.000100]: Train Loss=0.0000 | Train Acc=0.2917 | Val Loss=0.0000 | Val Acc=0.5333 | Val F1=0.2319
+2025-12-09 22:13:07,164 - INFO - Epoch 4/300 [LR=0.000150]: Train Loss=0.0000 | Train Acc=0.3750 | Val Loss=0.0000 | Val Acc=0.5333 | Val F1=0.2424
+2025-12-09 22:13:07,265 - INFO - 💾 保存最佳模型 (F1: 0.2424)
+2025-12-09 22:14:25,784 - INFO - Epoch 5/300 [LR=0.000200]: Train Loss=0.0000 | Train Acc=0.3542 | Val Loss=0.0000 | Val Acc=0.4000 | Val F1=0.2000
+2025-12-09 22:15:44,096 - INFO - Epoch 6/300 [LR=0.000250]: Train Loss=0.0000 | Train Acc=0.2708 | Val Loss=0.0000 | Val Acc=0.4667 | Val F1=0.4222
+2025-12-09 22:15:44,169 - INFO - 💾 保存最佳模型 (F1: 0.4222)
+2025-12-09 22:17:04,719 - INFO - Epoch 7/300 [LR=0.000298]: Train Loss=0.0000 | Train Acc=0.3333 | Val Loss=0.0000 | Val Acc=0.6000 | Val F1=0.5512
+2025-12-09 22:17:04,824 - INFO - 💾 保存最佳模型 (F1: 0.5512)
+2025-12-09 22:18:25,686 - INFO - Epoch 8/300 [LR=0.000298]: Train Loss=0.0000 | Train Acc=0.2083 | Val Loss=0.0000 | Val Acc=0.5333 | Val F1=0.3565
+2025-12-09 22:19:47,618 - INFO - Epoch 9/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.3750 | Val Loss=0.0000 | Val Acc=0.4667 | Val F1=0.2889
+2025-12-09 22:21:07,233 - INFO - Epoch 10/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.2292 | Val Loss=0.0000 | Val Acc=0.5333 | Val F1=0.3565
+2025-12-09 22:22:28,272 - INFO - Epoch 11/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.2708 | Val Loss=0.0000 | Val Acc=0.5333 | Val F1=0.3565
+2025-12-09 22:23:47,360 - INFO - Epoch 12/300 [LR=0.000296]: Train Loss=0.0000 | Train Acc=0.2708 | Val Loss=0.0000 | Val Acc=0.4667 | Val F1=0.3194
+2025-12-09 22:25:06,916 - INFO - Epoch 13/300 [LR=0.000296]: Train Loss=0.0000 | Train Acc=0.2917 | Val Loss=0.0000 | Val Acc=0.4667 | Val F1=0.3194
+2025-12-09 22:26:27,533 - INFO - Epoch 14/300 [LR=0.000296]: Train Loss=0.0000 | Train Acc=0.2917 | Val Loss=0.0000 | Val Acc=0.4000 | Val F1=0.2567
+2025-12-09 22:27:49,695 - INFO - Epoch 15/300 [LR=0.000295]: Train Loss=0.0000 | Train Acc=0.3542 | Val Loss=0.0000 | Val Acc=0.4000 | Val F1=0.2567
+2025-12-09 22:29:11,805 - INFO - Epoch 16/300 [LR=0.000295]: Train Loss=0.0000 | Train Acc=0.3750 | Val Loss=0.0000 | Val Acc=0.4000 | Val F1=0.2567
+2025-12-09 22:30:32,095 - INFO - Epoch 17/300 [LR=0.000295]: Train Loss=0.0000 | Train Acc=0.3750 | Val Loss=0.0000 | Val Acc=0.4000 | Val F1=0.2567
+2025-12-09 22:31:53,390 - INFO - Epoch 18/300 [LR=0.000294]: Train Loss=0.0000 | Train Acc=0.2917 | Val Loss=0.0000 | Val Acc=0.5333 | Val F1=0.3167
+2025-12-09 22:33:14,186 - INFO - Epoch 19/300 [LR=0.000294]: Train Loss=0.0000 | Train Acc=0.3542 | Val Loss=0.0000 | Val Acc=0.4667 | Val F1=0.2846
+2025-12-09 22:34:34,344 - INFO - Epoch 20/300 [LR=0.000294]: Train Loss=0.0000 | Train Acc=0.3750 | Val Loss=0.0000 | Val Acc=0.4667 | Val F1=0.2846
+2025-12-09 22:35:56,375 - INFO - Epoch 21/300 [LR=0.000293]: Train Loss=0.0000 | Train Acc=0.3958 | Val Loss=0.0000 | Val Acc=0.4000 | Val F1=0.2702
+2025-12-09 22:37:17,871 - INFO - Epoch 22/300 [LR=0.000293]: Train Loss=0.0000 | Train Acc=0.2917 | Val Loss=0.0000 | Val Acc=0.4000 | Val F1=0.2685
+2025-12-09 22:38:44,096 - INFO - Epoch 23/300 [LR=0.000293]: Train Loss=0.0000 | Train Acc=0.3542 | Val Loss=0.0000 | Val Acc=0.4000 | Val F1=0.2685
+2025-12-09 22:40:04,224 - INFO - Epoch 24/300 [LR=0.000292]: Train Loss=0.0000 | Train Acc=0.3125 | Val Loss=0.0000 | Val Acc=0.5333 | Val F1=0.3286
+2025-12-09 22:41:29,430 - INFO - Epoch 25/300 [LR=0.000292]: Train Loss=0.0000 | Train Acc=0.3125 | Val Loss=0.0000 | Val Acc=0.4000 | Val F1=0.2685
+2025-12-09 22:42:49,782 - INFO - Epoch 26/300 [LR=0.000292]: Train Loss=0.0000 | Train Acc=0.2292 | Val Loss=0.0000 | Val Acc=0.4667 | Val F1=0.2939
+2025-12-09 22:44:09,559 - INFO - Epoch 27/300 [LR=0.000291]: Train Loss=0.0000 | Train Acc=0.4375 | Val Loss=0.0000 | Val Acc=0.3333 | Val F1=0.2309
+2025-12-09 22:44:09,560 - INFO - 🛑 Early stopping at epoch 27
+2025-12-09 22:44:09,739 - INFO -  🔧使用 Focal Loss (标签平滑=0.02) 处理难分样本
+2025-12-09 22:45:32,413 - INFO - Epoch 1/300 [LR=0.000000]: Train Loss=0.0000 | Train Acc=0.3672 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.1852
+2025-12-09 22:45:32,489 - INFO - 💾 保存最佳模型 (F1: 0.1852)
+2025-12-09 22:46:56,742 - INFO - Epoch 2/300 [LR=0.000019]: Train Loss=0.0000 | Train Acc=0.3047 | Val Loss=0.0000 | Val Acc=0.3077 | Val F1=0.1971
+2025-12-09 22:46:56,839 - INFO - 💾 保存最佳模型 (F1: 0.1971)
+2025-12-09 22:48:18,571 - INFO - Epoch 3/300 [LR=0.000037]: Train Loss=0.0000 | Train Acc=0.3125 | Val Loss=0.0000 | Val Acc=0.2692 | Val F1=0.1810
+2025-12-09 22:49:44,296 - INFO - Epoch 4/300 [LR=0.000056]: Train Loss=0.0000 | Train Acc=0.3203 | Val Loss=0.0000 | Val Acc=0.3077 | Val F1=0.2564
+2025-12-09 22:49:44,364 - INFO - 💾 保存最佳模型 (F1: 0.2564)
+2025-12-09 22:51:04,253 - INFO - Epoch 5/300 [LR=0.000075]: Train Loss=0.0000 | Train Acc=0.3594 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3000
+2025-12-09 22:51:04,331 - INFO - 💾 保存最佳模型 (F1: 0.3000)
+2025-12-09 22:52:23,116 - INFO - Epoch 6/300 [LR=0.000094]: Train Loss=0.0000 | Train Acc=0.3281 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3000
+2025-12-09 22:53:43,454 - INFO - Epoch 7/300 [LR=0.000112]: Train Loss=0.0000 | Train Acc=0.3125 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3001
+2025-12-09 22:53:43,524 - INFO - 💾 保存最佳模型 (F1: 0.3001)
+2025-12-09 22:55:06,389 - INFO - Epoch 8/300 [LR=0.000131]: Train Loss=0.0000 | Train Acc=0.3203 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3000
+2025-12-09 22:56:29,181 - INFO - Epoch 9/300 [LR=0.000150]: Train Loss=0.0000 | Train Acc=0.3438 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3000
+2025-12-09 22:57:47,537 - INFO - Epoch 10/300 [LR=0.000169]: Train Loss=0.0000 | Train Acc=0.2891 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2778
+2025-12-09 22:59:07,936 - INFO - Epoch 11/300 [LR=0.000187]: Train Loss=0.0000 | Train Acc=0.2969 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3017
+2025-12-09 22:59:08,045 - INFO - 💾 保存最佳模型 (F1: 0.3017)
+2025-12-09 23:00:29,086 - INFO - Epoch 12/300 [LR=0.000206]: Train Loss=0.0000 | Train Acc=0.2812 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2407
+2025-12-09 23:01:53,449 - INFO - Epoch 13/300 [LR=0.000225]: Train Loss=0.0000 | Train Acc=0.3281 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2407
+2025-12-09 23:03:16,414 - INFO - Epoch 14/300 [LR=0.000244]: Train Loss=0.0000 | Train Acc=0.3203 | Val Loss=0.0000 | Val Acc=0.3077 | Val F1=0.2550
+2025-12-09 23:04:40,000 - INFO - Epoch 15/300 [LR=0.000262]: Train Loss=0.0000 | Train Acc=0.2578 | Val Loss=0.0000 | Val Acc=0.3077 | Val F1=0.2550
+2025-12-09 23:06:00,573 - INFO - Epoch 16/300 [LR=0.000281]: Train Loss=0.0000 | Train Acc=0.3359 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2222
+2025-12-09 23:07:26,307 - INFO - Epoch 17/300 [LR=0.000298]: Train Loss=0.0000 | Train Acc=0.2969 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2809
+2025-12-09 23:08:54,533 - INFO - Epoch 18/300 [LR=0.000298]: Train Loss=0.0000 | Train Acc=0.2578 | Val Loss=0.0000 | Val Acc=0.3077 | Val F1=0.2547
+2025-12-09 23:10:17,701 - INFO - Epoch 19/300 [LR=0.000298]: Train Loss=0.0000 | Train Acc=0.3047 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3056
+2025-12-09 23:10:17,794 - INFO - 💾 保存最佳模型 (F1: 0.3056)
+2025-12-09 23:11:41,494 - INFO - Epoch 20/300 [LR=0.000298]: Train Loss=0.0000 | Train Acc=0.2812 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2809
+2025-12-09 23:13:05,630 - INFO - Epoch 21/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.3203 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3017
+2025-12-09 23:14:29,216 - INFO - Epoch 22/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.3281 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2276
+2025-12-09 23:15:52,304 - INFO - Epoch 23/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.2891 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2172
+2025-12-09 23:17:14,543 - INFO - Epoch 24/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.3047 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2222
+2025-12-09 23:18:35,897 - INFO - Epoch 25/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.2969 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2809
+2025-12-09 23:20:04,458 - INFO - Epoch 26/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.3125 | Val Loss=0.0000 | Val Acc=0.3077 | Val F1=0.2596
+2025-12-09 23:21:26,254 - INFO - Epoch 27/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.2500 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2387
+2025-12-09 23:22:49,419 - INFO - Epoch 28/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.2969 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.1818
+2025-12-09 23:24:10,163 - INFO - Epoch 29/300 [LR=0.000296]: Train Loss=0.0000 | Train Acc=0.3281 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2887
+2025-12-09 23:25:30,363 - INFO - Epoch 30/300 [LR=0.000296]: Train Loss=0.0000 | Train Acc=0.3281 | Val Loss=0.0000 | Val Acc=0.3077 | Val F1=0.2215
+2025-12-09 23:26:53,258 - INFO - Epoch 31/300 [LR=0.000296]: Train Loss=0.0000 | Train Acc=0.3047 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3017
+2025-12-09 23:28:15,746 - INFO - Epoch 32/300 [LR=0.000296]: Train Loss=0.0000 | Train Acc=0.3125 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3017
+2025-12-09 23:29:38,855 - INFO - Epoch 33/300 [LR=0.000296]: Train Loss=0.0000 | Train Acc=0.2891 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2387
+2025-12-09 23:30:59,251 - INFO - Epoch 34/300 [LR=0.000296]: Train Loss=0.0000 | Train Acc=0.3281 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2172
+2025-12-09 23:32:23,447 - INFO - Epoch 35/300 [LR=0.000296]: Train Loss=0.0000 | Train Acc=0.3438 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2172
+2025-12-09 23:33:44,631 - INFO - Epoch 36/300 [LR=0.000296]: Train Loss=0.0000 | Train Acc=0.2656 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2222
+2025-12-09 23:35:05,773 - INFO - Epoch 37/300 [LR=0.000295]: Train Loss=0.0000 | Train Acc=0.2812 | Val Loss=0.0000 | Val Acc=0.3077 | Val F1=0.1667
+2025-12-09 23:36:27,613 - INFO - Epoch 38/300 [LR=0.000295]: Train Loss=0.0000 | Train Acc=0.3203 | Val Loss=0.0000 | Val Acc=0.3077 | Val F1=0.2550
+2025-12-09 23:37:52,967 - INFO - Epoch 39/300 [LR=0.000295]: Train Loss=0.0000 | Train Acc=0.2891 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3132
+2025-12-09 23:37:53,126 - INFO - 💾 保存最佳模型 (F1: 0.3132)
+2025-12-09 23:39:18,875 - INFO - Epoch 40/300 [LR=0.000295]: Train Loss=0.0000 | Train Acc=0.3203 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2407
+2025-12-09 23:40:41,940 - INFO - Epoch 41/300 [LR=0.000295]: Train Loss=0.0000 | Train Acc=0.3359 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.2320
+2025-12-09 23:42:06,433 - INFO - Epoch 42/300 [LR=0.000295]: Train Loss=0.0000 | Train Acc=0.3672 | Val Loss=0.0000 | Val Acc=0.4231 | Val F1=0.3222
+2025-12-09 23:42:06,531 - INFO - 💾 保存最佳模型 (F1: 0.3222)
+2025-12-09 23:43:26,407 - INFO - Epoch 43/300 [LR=0.000295]: Train Loss=0.0000 | Train Acc=0.3125 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2222
+2025-12-09 23:44:48,363 - INFO - Epoch 44/300 [LR=0.000295]: Train Loss=0.0000 | Train Acc=0.3359 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.2371
+2025-12-09 23:46:10,163 - INFO - Epoch 45/300 [LR=0.000295]: Train Loss=0.0000 | Train Acc=0.3672 | Val Loss=0.0000 | Val Acc=0.4231 | Val F1=0.3208
+2025-12-09 23:47:34,957 - INFO - Epoch 46/300 [LR=0.000294]: Train Loss=0.0000 | Train Acc=0.2578 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2172
+2025-12-09 23:49:01,071 - INFO - Epoch 47/300 [LR=0.000294]: Train Loss=0.0000 | Train Acc=0.2969 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2222
+2025-12-09 23:50:22,916 - INFO - Epoch 48/300 [LR=0.000294]: Train Loss=0.0000 | Train Acc=0.3516 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2222
+2025-12-09 23:51:44,811 - INFO - Epoch 49/300 [LR=0.000294]: Train Loss=0.0000 | Train Acc=0.3125 | Val Loss=0.0000 | Val Acc=0.3077 | Val F1=0.1616
+2025-12-09 23:53:09,228 - INFO - Epoch 50/300 [LR=0.000294]: Train Loss=0.0000 | Train Acc=0.3203 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3017
+2025-12-09 23:54:30,583 - INFO - Epoch 51/300 [LR=0.000294]: Train Loss=0.0000 | Train Acc=0.2891 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.2559
+2025-12-09 23:55:53,326 - INFO - Epoch 52/300 [LR=0.000294]: Train Loss=0.0000 | Train Acc=0.3281 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2778
+2025-12-09 23:57:20,305 - INFO - Epoch 53/300 [LR=0.000293]: Train Loss=0.0000 | Train Acc=0.2656 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3056
+2025-12-09 23:58:42,146 - INFO - Epoch 54/300 [LR=0.000293]: Train Loss=0.0000 | Train Acc=0.3281 | Val Loss=0.0000 | Val Acc=0.3077 | Val F1=0.1569
+2025-12-10 00:00:04,865 - INFO - Epoch 55/300 [LR=0.000293]: Train Loss=0.0000 | Train Acc=0.3516 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3017
+2025-12-10 00:01:27,416 - INFO - Epoch 56/300 [LR=0.000293]: Train Loss=0.0000 | Train Acc=0.2734 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2809
+2025-12-10 00:02:54,433 - INFO - Epoch 57/300 [LR=0.000293]: Train Loss=0.0000 | Train Acc=0.3516 | Val Loss=0.0000 | Val Acc=0.4231 | Val F1=0.3222
+2025-12-10 00:04:14,595 - INFO - Epoch 58/300 [LR=0.000293]: Train Loss=0.0000 | Train Acc=0.3750 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3056
+2025-12-10 00:05:39,309 - INFO - Epoch 59/300 [LR=0.000293]: Train Loss=0.0000 | Train Acc=0.3203 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2852
+2025-12-10 00:07:00,690 - INFO - Epoch 60/300 [LR=0.000293]: Train Loss=0.0000 | Train Acc=0.2812 | Val Loss=0.0000 | Val Acc=0.3846 | Val F1=0.3017
+2025-12-10 00:08:25,868 - INFO - Epoch 61/300 [LR=0.000292]: Train Loss=0.0000 | Train Acc=0.3047 | Val Loss=0.0000 | Val Acc=0.3462 | Val F1=0.2222
+2025-12-10 00:09:50,131 - INFO - Epoch 62/300 [LR=0.000292]: Train Loss=0.0000 | Train Acc=0.3438 | Val Loss=0.0000 | Val Acc=0.2692 | Val F1=0.2046
+2025-12-10 00:09:50,131 - INFO - 🛑 Early stopping at epoch 62
+2025-12-10 00:09:50,342 - INFO -  🔧使用 Focal Loss (标签平滑=0.02) 处理难分样本
+2025-12-10 00:11:18,668 - INFO - Epoch 1/300 [LR=0.000000]: Train Loss=13511326.1176 | Train Acc=0.0809 | Val Loss=12362815.6000 | Val Acc=0.0250 | Val F1=0.0158
+2025-12-10 00:11:18,695 - INFO - 💾 保存最佳模型 (F1: 0.0158)
+2025-12-10 00:12:43,896 - INFO - Epoch 2/300 [LR=0.000009]: Train Loss=13044386.0588 | Train Acc=0.0551 | Val Loss=12600782.2000 | Val Acc=0.0375 | Val F1=0.0324
+2025-12-10 00:12:43,966 - INFO - 💾 保存最佳模型 (F1: 0.0324)
+2025-12-10 00:14:05,260 - INFO - Epoch 3/300 [LR=0.000018]: Train Loss=13258208.5000 | Train Acc=0.1103 | Val Loss=12492529.6000 | Val Acc=0.0500 | Val F1=0.0433
+2025-12-10 00:14:05,330 - INFO - 💾 保存最佳模型 (F1: 0.0433)
+2025-12-10 00:15:30,602 - INFO - Epoch 4/300 [LR=0.000026]: Train Loss=12699511.1765 | Train Acc=0.1029 | Val Loss=12202094.4000 | Val Acc=0.1125 | Val F1=0.0984
+2025-12-10 00:15:30,679 - INFO - 💾 保存最佳模型 (F1: 0.0984)
+2025-12-10 00:16:55,609 - INFO - Epoch 5/300 [LR=0.000035]: Train Loss=12695412.2353 | Train Acc=0.0846 | Val Loss=11899793.0000 | Val Acc=0.1125 | Val F1=0.0921
+2025-12-10 00:18:19,962 - INFO - Epoch 6/300 [LR=0.000044]: Train Loss=12675512.5294 | Train Acc=0.0809 | Val Loss=11201891.2000 | Val Acc=0.1250 | Val F1=0.1002
+2025-12-10 00:18:20,031 - INFO - 💾 保存最佳模型 (F1: 0.1002)
+2025-12-10 00:19:46,088 - INFO - Epoch 7/300 [LR=0.000053]: Train Loss=12213556.0588 | Train Acc=0.1140 | Val Loss=10978994.4000 | Val Acc=0.1000 | Val F1=0.0815
+2025-12-10 00:21:10,266 - INFO - Epoch 8/300 [LR=0.000062]: Train Loss=11785779.5294 | Train Acc=0.1029 | Val Loss=10656196.6000 | Val Acc=0.1750 | Val F1=0.1524
+2025-12-10 00:21:10,345 - INFO - 💾 保存最佳模型 (F1: 0.1524)
+2025-12-10 00:22:32,148 - INFO - Epoch 9/300 [LR=0.000071]: Train Loss=11285664.3824 | Train Acc=0.1397 | Val Loss=10239306.6000 | Val Acc=0.1625 | Val F1=0.1266
+2025-12-10 00:23:58,624 - INFO - Epoch 10/300 [LR=0.000079]: Train Loss=10937920.7059 | Train Acc=0.1397 | Val Loss=10521577.8000 | Val Acc=0.1750 | Val F1=0.1558
+2025-12-10 00:23:58,695 - INFO - 💾 保存最佳模型 (F1: 0.1558)
+2025-12-10 00:25:25,382 - INFO - Epoch 11/300 [LR=0.000088]: Train Loss=11608649.4412 | Train Acc=0.1213 | Val Loss=10341285.2000 | Val Acc=0.3000 | Val F1=0.1874
+2025-12-10 00:25:25,456 - INFO - 💾 保存最佳模型 (F1: 0.1874)
+2025-12-10 00:26:50,081 - INFO - Epoch 12/300 [LR=0.000097]: Train Loss=11103834.9118 | Train Acc=0.1140 | Val Loss=9495392.6000 | Val Acc=0.4000 | Val F1=0.2668
+2025-12-10 00:26:50,181 - INFO - 💾 保存最佳模型 (F1: 0.2668)
+2025-12-10 00:28:19,807 - INFO - Epoch 13/300 [LR=0.000106]: Train Loss=10633407.7941 | Train Acc=0.1324 | Val Loss=9234006.2000 | Val Acc=0.3125 | Val F1=0.1629
+2025-12-10 00:29:47,078 - INFO - Epoch 14/300 [LR=0.000115]: Train Loss=10230841.9706 | Train Acc=0.1654 | Val Loss=9131625.8000 | Val Acc=0.4000 | Val F1=0.2951
+2025-12-10 00:29:47,145 - INFO - 💾 保存最佳模型 (F1: 0.2951)
+2025-12-10 00:31:09,849 - INFO - Epoch 15/300 [LR=0.000124]: Train Loss=10264905.2059 | Train Acc=0.1618 | Val Loss=8962180.5000 | Val Acc=0.3000 | Val F1=0.1829
+2025-12-10 00:32:35,889 - INFO - Epoch 16/300 [LR=0.000132]: Train Loss=9765261.9706 | Train Acc=0.1985 | Val Loss=8846339.4000 | Val Acc=0.3125 | Val F1=0.1719
+2025-12-10 00:33:58,822 - INFO - Epoch 17/300 [LR=0.000141]: Train Loss=9252520.7353 | Train Acc=0.2574 | Val Loss=8855793.6000 | Val Acc=0.3125 | Val F1=0.1623
+2025-12-10 00:35:26,243 - INFO - Epoch 18/300 [LR=0.000150]: Train Loss=9477160.6471 | Train Acc=0.2206 | Val Loss=8515777.1000 | Val Acc=0.3500 | Val F1=0.2031
+2025-12-10 00:36:54,383 - INFO - Epoch 19/300 [LR=0.000159]: Train Loss=9056112.3529 | Train Acc=0.2721 | Val Loss=8186612.0000 | Val Acc=0.3625 | Val F1=0.2186
+2025-12-10 00:38:19,946 - INFO - Epoch 20/300 [LR=0.000168]: Train Loss=9136890.2353 | Train Acc=0.2463 | Val Loss=7891881.3000 | Val Acc=0.3500 | Val F1=0.1850
+2025-12-10 00:39:46,482 - INFO - Epoch 21/300 [LR=0.000176]: Train Loss=8958122.5882 | Train Acc=0.2904 | Val Loss=7886937.5000 | Val Acc=0.3750 | Val F1=0.2069
+2025-12-10 00:41:09,064 - INFO - Epoch 22/300 [LR=0.000185]: Train Loss=8325153.1765 | Train Acc=0.2904 | Val Loss=7647443.8000 | Val Acc=0.3875 | Val F1=0.2206
+2025-12-10 00:42:38,248 - INFO - Epoch 23/300 [LR=0.000194]: Train Loss=8203606.9706 | Train Acc=0.3346 | Val Loss=7316454.5000 | Val Acc=0.3875 | Val F1=0.2241
+2025-12-10 00:44:07,204 - INFO - Epoch 24/300 [LR=0.000203]: Train Loss=8309404.0588 | Train Acc=0.3309 | Val Loss=7289263.8000 | Val Acc=0.3625 | Val F1=0.1987
+2025-12-10 00:45:34,020 - INFO - Epoch 25/300 [LR=0.000212]: Train Loss=8457070.1765 | Train Acc=0.2868 | Val Loss=7168915.8000 | Val Acc=0.3875 | Val F1=0.1958
+2025-12-10 00:47:00,784 - INFO - Epoch 26/300 [LR=0.000221]: Train Loss=8125374.1471 | Train Acc=0.2978 | Val Loss=6964472.2000 | Val Acc=0.4125 | Val F1=0.2376
+2025-12-10 00:48:27,766 - INFO - Epoch 27/300 [LR=0.000229]: Train Loss=7575355.5294 | Train Acc=0.3934 | Val Loss=7102306.6000 | Val Acc=0.4000 | Val F1=0.2322
+2025-12-10 00:49:54,497 - INFO - Epoch 28/300 [LR=0.000238]: Train Loss=7587570.2647 | Train Acc=0.3676 | Val Loss=7038134.1000 | Val Acc=0.3750 | Val F1=0.2094
+2025-12-10 00:51:17,262 - INFO - Epoch 29/300 [LR=0.000247]: Train Loss=7995788.7500 | Train Acc=0.3272 | Val Loss=6771823.2000 | Val Acc=0.4250 | Val F1=0.2531
+2025-12-10 00:52:42,120 - INFO - Epoch 30/300 [LR=0.000256]: Train Loss=7217236.5588 | Train Acc=0.3603 | Val Loss=6726880.4000 | Val Acc=0.4250 | Val F1=0.2539
+2025-12-10 00:54:04,617 - INFO - Epoch 31/300 [LR=0.000265]: Train Loss=7714197.0588 | Train Acc=0.3309 | Val Loss=6808726.2000 | Val Acc=0.4125 | Val F1=0.2456
+2025-12-10 00:55:30,161 - INFO - Epoch 32/300 [LR=0.000274]: Train Loss=7478430.6029 | Train Acc=0.3640 | Val Loss=6866165.2000 | Val Acc=0.3750 | Val F1=0.2176
+2025-12-10 00:56:53,949 - INFO - Epoch 33/300 [LR=0.000282]: Train Loss=7499971.9706 | Train Acc=0.3088 | Val Loss=6699150.2000 | Val Acc=0.4125 | Val F1=0.2391
+2025-12-10 00:58:19,776 - INFO - Epoch 34/300 [LR=0.000291]: Train Loss=6742708.3676 | Train Acc=0.3971 | Val Loss=6557266.5000 | Val Acc=0.4125 | Val F1=0.2369
+2025-12-10 00:58:19,776 - INFO - 🛑 Early stopping at epoch 34
+2025-12-10 00:58:19,936 - INFO -  🔧使用 Focal Loss (标签平滑=0.02) 处理难分样本
+2025-12-10 00:59:44,345 - INFO - Epoch 1/300 [LR=0.000000]: Train Loss=0.0000 | Train Acc=0.3958 | Val Loss=0.0000 | Val Acc=0.2353 | Val F1=0.1574
+2025-12-10 00:59:44,431 - INFO - 💾 保存最佳模型 (F1: 0.1574)
+2025-12-10 01:01:04,826 - INFO - Epoch 2/300 [LR=0.000017]: Train Loss=0.0000 | Train Acc=0.3958 | Val Loss=0.0000 | Val Acc=0.2059 | Val F1=0.1228
+2025-12-10 01:02:27,077 - INFO - Epoch 3/300 [LR=0.000033]: Train Loss=0.0000 | Train Acc=0.3333 | Val Loss=0.0000 | Val Acc=0.2941 | Val F1=0.2021
+2025-12-10 01:02:27,165 - INFO - 💾 保存最佳模型 (F1: 0.2021)
+2025-12-10 01:03:49,826 - INFO - Epoch 4/300 [LR=0.000050]: Train Loss=0.0000 | Train Acc=0.4167 | Val Loss=0.0000 | Val Acc=0.3235 | Val F1=0.2173
+2025-12-10 01:03:49,894 - INFO - 💾 保存最佳模型 (F1: 0.2173)
+2025-12-10 01:05:11,236 - INFO - Epoch 5/300 [LR=0.000067]: Train Loss=0.0000 | Train Acc=0.4444 | Val Loss=0.0000 | Val Acc=0.2941 | Val F1=0.2010
+2025-12-10 01:06:37,363 - INFO - Epoch 6/300 [LR=0.000083]: Train Loss=0.0000 | Train Acc=0.2986 | Val Loss=0.0000 | Val Acc=0.3824 | Val F1=0.2500
+2025-12-10 01:06:37,433 - INFO - 💾 保存最佳模型 (F1: 0.2500)
+2025-12-10 01:08:02,988 - INFO - Epoch 7/300 [LR=0.000100]: Train Loss=0.0000 | Train Acc=0.4028 | Val Loss=0.0000 | Val Acc=0.2647 | Val F1=0.1707
+2025-12-10 01:09:29,279 - INFO - Epoch 8/300 [LR=0.000117]: Train Loss=0.0000 | Train Acc=0.3889 | Val Loss=0.0000 | Val Acc=0.2059 | Val F1=0.1389
+2025-12-10 01:10:56,073 - INFO - Epoch 9/300 [LR=0.000133]: Train Loss=0.0000 | Train Acc=0.3889 | Val Loss=0.0000 | Val Acc=0.2647 | Val F1=0.1852
+2025-12-10 01:12:21,493 - INFO - Epoch 10/300 [LR=0.000150]: Train Loss=0.0000 | Train Acc=0.3472 | Val Loss=0.0000 | Val Acc=0.2059 | Val F1=0.1389
+2025-12-10 01:13:44,206 - INFO - Epoch 11/300 [LR=0.000167]: Train Loss=0.0000 | Train Acc=0.4583 | Val Loss=0.0000 | Val Acc=0.3235 | Val F1=0.2018
+2025-12-10 01:15:05,967 - INFO - Epoch 12/300 [LR=0.000183]: Train Loss=0.0000 | Train Acc=0.4444 | Val Loss=0.0000 | Val Acc=0.3235 | Val F1=0.2556
+2025-12-10 01:15:06,036 - INFO - 💾 保存最佳模型 (F1: 0.2556)
+2025-12-10 01:16:25,372 - INFO - Epoch 13/300 [LR=0.000200]: Train Loss=0.0000 | Train Acc=0.3681 | Val Loss=0.0000 | Val Acc=0.2647 | Val F1=0.1737
+2025-12-10 01:17:50,127 - INFO - Epoch 14/300 [LR=0.000217]: Train Loss=0.0000 | Train Acc=0.4306 | Val Loss=0.0000 | Val Acc=0.3235 | Val F1=0.2556
+2025-12-10 01:19:14,487 - INFO - Epoch 15/300 [LR=0.000233]: Train Loss=0.0000 | Train Acc=0.4028 | Val Loss=0.0000 | Val Acc=0.2647 | Val F1=0.1902
+2025-12-10 01:20:37,896 - INFO - Epoch 16/300 [LR=0.000250]: Train Loss=0.0000 | Train Acc=0.3958 | Val Loss=0.0000 | Val Acc=0.2059 | Val F1=0.1909
+2025-12-10 01:22:00,222 - INFO - Epoch 17/300 [LR=0.000267]: Train Loss=0.0000 | Train Acc=0.4236 | Val Loss=0.0000 | Val Acc=0.1765 | Val F1=0.1219
+2025-12-10 01:23:21,746 - INFO - Epoch 18/300 [LR=0.000283]: Train Loss=0.0000 | Train Acc=0.4861 | Val Loss=0.0000 | Val Acc=0.2059 | Val F1=0.1414
+2025-12-10 01:24:48,585 - INFO - Epoch 19/300 [LR=0.000298]: Train Loss=0.0000 | Train Acc=0.3681 | Val Loss=0.0000 | Val Acc=0.3235 | Val F1=0.2185
+2025-12-10 01:26:09,724 - INFO - Epoch 20/300 [LR=0.000298]: Train Loss=0.0000 | Train Acc=0.4028 | Val Loss=0.0000 | Val Acc=0.2941 | Val F1=0.1856
+2025-12-10 01:27:34,323 - INFO - Epoch 21/300 [LR=0.000298]: Train Loss=0.0000 | Train Acc=0.4167 | Val Loss=0.0000 | Val Acc=0.2353 | Val F1=0.1564
+2025-12-10 01:28:54,694 - INFO - Epoch 22/300 [LR=0.000298]: Train Loss=0.0000 | Train Acc=0.3611 | Val Loss=0.0000 | Val Acc=0.2059 | Val F1=0.1414
+2025-12-10 01:30:14,663 - INFO - Epoch 23/300 [LR=0.000298]: Train Loss=0.0000 | Train Acc=0.3403 | Val Loss=0.0000 | Val Acc=0.2941 | Val F1=0.2404
+2025-12-10 01:31:35,237 - INFO - Epoch 24/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.3542 | Val Loss=0.0000 | Val Acc=0.3235 | Val F1=0.2315
+2025-12-10 01:32:59,433 - INFO - Epoch 25/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.3611 | Val Loss=0.0000 | Val Acc=0.2353 | Val F1=0.1551
+2025-12-10 01:34:22,053 - INFO - Epoch 26/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.3889 | Val Loss=0.0000 | Val Acc=0.2647 | Val F1=0.1876
+2025-12-10 01:35:46,949 - INFO - Epoch 27/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.3889 | Val Loss=0.0000 | Val Acc=0.2941 | Val F1=0.2021
+2025-12-10 01:37:08,522 - INFO - Epoch 28/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.4097 | Val Loss=0.0000 | Val Acc=0.2941 | Val F1=0.2076
+2025-12-10 01:38:23,787 - INFO - Epoch 29/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.4444 | Val Loss=0.0000 | Val Acc=0.2353 | Val F1=0.2172
+2025-12-10 01:39:39,463 - INFO - Epoch 30/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.4514 | Val Loss=0.0000 | Val Acc=0.2059 | Val F1=0.2013
+2025-12-10 01:41:04,040 - INFO - Epoch 31/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.4236 | Val Loss=0.0000 | Val Acc=0.2059 | Val F1=0.1514
+2025-12-10 01:42:25,657 - INFO - Epoch 32/300 [LR=0.000297]: Train Loss=0.0000 | Train Acc=0.4097 | Val Loss=0.0000 | Val Acc=0.2059 | Val F1=0.1493
+2025-12-10 01:42:25,657 - INFO - 🛑 Early stopping at epoch 32
