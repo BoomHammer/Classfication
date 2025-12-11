@@ -46,9 +46,9 @@ model:
   # in_channels_static: 由 RasterCrawler 自动检测
   # num_classes: 由 LabelEncoder 自动检测
   temporal_encoder: "LTAE"                        # 时间编码器类型
-  dropout: 0.15                                   # 正则化：从0.25->0.15（避免过强正则化导致欠拟合）
-  hidden_dim: 256                                  # 隐层维度
-  label_smoothing: 0.0                            # 禁用：标签平滑过强导致训练不稳定
+  dropout: 0.1                                   # 正则化：增强到0.3以提高小类的稳定性
+  # hidden_dim: 256                                  # 隐层维度
+  label_smoothing: 0.01                           # 保守的标签平滑（对小类特别重要，避免梯度混乱）
   
   # 分类器隐藏层配置（可灵活调整）
   classifier:
@@ -60,26 +60,39 @@ train:
   seed: 42
   num_workers: 8          # 数据加载线程数，根据CPU核数调整
   split_ratio: [0.7, 0.15, 0.15] # 训练/验证/测试比例
+  
+  # ========== K-Fold 交叉验证配置 (Stratified K-Fold) ==========
+  # 用于小数据集，充分利用每条数据的宝贵信息
+  # 注意：K-Fold 始终启用，所有模型均使用 Stratified K-Fold 训练
+  kfold:
+    n_splits: 5                  # K 折数 (推荐: 3-10, 小数据集推荐5-10)
+    random_state: 42             # 随机种子，确保可重复性
+    shuffle: true                # 是否在分割前打乱数据
+    # Ensemble 预测配置
+    ensemble:
+      enabled: true              # 启用 Ensemble 投票预测
+      method: "voting"           # 预测方法：'voting'（多数投票）或 'averaging'（概率平均）
+  # ============================================================
 
   # === 大类模型专用超参数 ===
   major_model:
     epochs: 400            # 大类通常数据多，训练轮数可以适中
-    batch_size: 32        # 显存允许的情况下尽量大
+    batch_size: 64        # 显存允许的情况下尽量大
     learning_rate: 0.0005
     weight_decay: 0.0001  # 从0.001->0.0001：更温和的L2正则化
     patience: 25          # 从20->25：给予更多耐心
     use_class_weights: true  # 使用类别权重平衡
     use_sample_resampling: true  # 启用样本重采样
-    label_smoothing: 0.02  # 降低标签平滑强度：从0.05->0.02
+    label_smoothing: 0.01  # 降低标签平滑强度：0.01（保守）
 
   # === 小类模型专用超参数 ===
   detail_model:
     epochs: 300            # 小类可能需要更多轮次来拟合细节
-    batch_size: 16        # 某些小类样本少，Batch Size 不宜过大
+    batch_size: 32        # 某些小类样本少，Batch Size 不宜过大
     learning_rate: 0.0003 # 从0.0005->0.0003：更保守的学习率
     weight_decay: 0.00005 # 从0.0001->0.00005：更温和的正则化
     patience: 20          # 从15->20：给更多耐心
     min_samples: 5        # 训练所需的最小样本数，少于此数跳过训练
     use_class_weights: true  # 使用类别权重平衡
     use_sample_resampling: true  # 启用样本重采样
-    label_smoothing: 0.02  # 降低标签平滑强度：从0.1->0.02
+    label_smoothing: 0.01  # 降低标签平滑强度：0.01（保守）

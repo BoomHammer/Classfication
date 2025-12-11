@@ -10,6 +10,7 @@ import multiprocessing
 from pathlib import Path
 import torch
 from torch.utils.data import DataLoader, Subset
+from sklearn.model_selection import StratifiedKFold
 import numpy as np
 
 # 导入本地模块
@@ -37,7 +38,8 @@ def get_subset_indices(dataset, filter_func):
 
 def compute_class_weights(dataset, label_key, num_classes):
     """计算类别权重，用于处理类不平衡问题
-    使用倒数频率权重：w_i = N / (n_classes * n_i)
+    [改进] 使用平衡权重公式，并进行归一化防止loss爆炸
+    权重公式: w_i = (1 - beta) / (1 - beta^{n_i})，其中 beta = (N-1)/N
     """
     class_counts = np.zeros(num_classes)
     
@@ -66,9 +68,25 @@ def compute_class_weights(dataset, label_key, num_classes):
             if 0 <= label < num_classes:
                 class_counts[label] += 1
     
-    # 计算权重：总样本数 / (类数 * 该类样本数)
+    # [改进] 使用平衡权重公式
     total_samples = class_counts.sum()
-    weights = total_samples / (num_classes * (class_counts + 1e-6))
+    
+    # 方案1：简单反向频率权重（稳定版本）
+    # 权重 = 平均样本数 / 该类样本数
+    avg_count = total_samples / (num_classes + 1e-6)
+    weights = np.ones(num_classes)
+    for i in range(num_classes):
+        if class_counts[i] > 0:
+            weights[i] = avg_count / class_counts[i]
+        else:
+            weights[i] = 1.0  # 类别不存在时设为1.0
+    
+    # [关键修复] 归一化权重，使得平均权重为1，防止loss过大
+    weights = weights / (weights.mean() + 1e-8)
+    
+    # [防护] 限制权重范围 [0.1, 10.0]，防止极端不平衡类的权重过大
+    weights = np.clip(weights, 0.1, 10.0)
+    
     weights = torch.from_numpy(weights).float()
     
     return weights
@@ -139,67 +157,74 @@ def main():
     hierarchical_map = encoder.get_hierarchical_map()
 
     # =========================================================================
-    # 阶段 A: 训练大类模型 (Major Model)
+    # 阶段 A: 训练大类模型 (Major Model) - K-Fold 交叉验证
     # =========================================================================
     print("\n" + "="*60)
-    print("🏗️  [阶段 A] 训练大类分类模型")
+    print("🏗️  [阶段 A] 训练大类分类模型 (K-Fold 交叉验证)")
     print("="*60)
+    
+    # 读取 K-Fold 配置
+    kfold_config = config.get('train.kfold', {})
+    major_kfold_n_splits = kfold_config.get('n_splits', 5)
+    major_kfold_random_state = kfold_config.get('random_state', 42)
     
     # 计算大类权重
     major_weights = compute_class_weights(full_train_dataset, 'major_label', len(major_map))
     print(f"📊 大类权重: {major_weights.tolist()}")
     
     major_label_smoothing = major_cfg.get('label_smoothing', config.get('model.label_smoothing', 0.05))
-    
     major_model_dir = output_dir / "major_model"
+    
+    print(f"\n📊 启用 K-Fold 交叉验证 (n_splits={major_kfold_n_splits})")
     major_model = DualStreamSpatio_TemporalFusionNetwork(
         in_channels_dynamic=dyn_ch,
         in_channels_static=sta_ch,
         num_classes=len(major_map),
-        dropout=config.get('model.dropout', 0.25),  # 使用config中的dropout
+        dropout=config.get('model.dropout', 0.25),
         classifier_hidden_dims=config.get('model.classifier.hidden_dims', [128, 64, 32])
     )
     
-    # [修复 1] 大类模型通常数据充足，直接启用 drop_last=True 避免 Batch=1
     major_trainer = Trainer(
         model=major_model,
-        train_dataloader=DataLoader(
-            full_train_dataset, 
-            shuffle=True, 
-            batch_size=major_cfg['batch_size'], 
-            collate_fn=collate_fn, 
-            drop_last=True,  # 关键修复
-            **common_cfg
-        ),
-        val_dataloader=DataLoader(
-            full_val_dataset, 
-            shuffle=False, 
-            batch_size=major_cfg['batch_size'], 
-            collate_fn=collate_fn, 
-            drop_last=False, 
-            **common_cfg
-        ),
+        train_dataloader=None,  # K-Fold 内部会创建
+        val_dataloader=None,
         num_classes=len(major_map),
         target_key='major_label',
         output_dir=major_model_dir,
-        class_weights=major_weights,  # 添加类别权重
-        use_focal_loss=True,  # 使用Focal Loss处理难分样本
-        label_smoothing=major_label_smoothing  # 添加标签平滑
+        class_weights=major_weights,
+        use_focal_loss=True,
+        label_smoothing=major_label_smoothing,
+        model_init_params={  # 传入模型初始化参数
+            'in_channels_dynamic': dyn_ch,
+            'in_channels_static': sta_ch,
+            'num_classes': len(major_map),
+            'dropout': config.get('model.dropout', 0.25),
+            'classifier_hidden_dims': config.get('model.classifier.hidden_dims', [128, 64, 32])
+        }
     )
     
-    major_trainer.train(
+    kfold_results = major_trainer.train_with_kfold(
+        dataset=full_train_dataset,
         num_epochs=major_cfg['epochs'],
         learning_rate=major_cfg['learning_rate'],
         weight_decay=major_cfg['weight_decay'],
-        patience=major_cfg['patience']
+        patience=major_cfg['patience'],
+        n_splits=major_kfold_n_splits,
+        random_state=major_kfold_random_state,
+        debug=False,
+        accumulation_steps=1,
+        batch_size=major_cfg['batch_size']
     )
+    
+    print(f"✅ 大类模型 K-Fold 训练完成")
+    print(f"   平均精度: {kfold_results['mean_metrics'].get('accuracy', 0):.4f} ± {kfold_results['std_metrics'].get('accuracy_std', 0):.4f}")
     print(f"✅ 大类模型保存于: {major_model_dir}")
 
     # =========================================================================
-    # 阶段 B: 训练小类模型 (Detail Models)
+    # 阶段 B: 训练小类模型 (Detail Models) - K-Fold 交叉验证
     # =========================================================================
     print("\n" + "="*60)
-    print("🏗️  [阶段 B] 训练各分支小类模型")
+    print("🏗️  [阶段 B] 训练各分支小类模型 (K-Fold 交叉验证)")
     print("="*60)
 
     for major_name, major_id in major_map.items():
@@ -236,52 +261,101 @@ def main():
         detail_label_smoothing = detail_cfg.get('label_smoothing', config.get('model.label_smoothing', 0.1))
         
         sub_model_dir = output_dir / f"detail_model_{major_id}_{major_name}"
-        sub_model = DualStreamSpatio_TemporalFusionNetwork(
-            in_channels_dynamic=dyn_ch,
-            in_channels_static=sta_ch,
-            num_classes=num_sub_classes,
-            dropout=config.get('model.dropout', 0.25),  # 使用config中的dropout
-            classifier_hidden_dims=config.get('model.classifier.hidden_dims', [128, 64, 32])
-        )
         
-        # [修复 2] 动态决定是否 drop_last
-        # 如果样本数 > BatchSize，则启用 drop_last=True 以防止产生余数为1的 Batch
-        # 如果样本数 < BatchSize，则禁用 drop_last=True (否则会把唯一的数据丢掉导致报错)
-        # 此时 BatchSize = 样本数 > 1 (因为 min_samples=5)，所以 BatchNorm 安全。
-        use_drop_last = len(train_indices) > detail_cfg['batch_size']
-        
-        sub_trainer = Trainer(
-            model=sub_model,
-            train_dataloader=DataLoader(
-                train_subset, 
-                shuffle=True, 
-                batch_size=detail_cfg['batch_size'], 
-                collate_fn=collate_fn, 
-                drop_last=use_drop_last, # 动态设置
-                **common_cfg
-            ),
-            val_dataloader=DataLoader(
-                val_subset, 
-                shuffle=False, 
-                batch_size=detail_cfg['batch_size'], 
-                collate_fn=collate_fn, 
-                **common_cfg
-            ),
-            num_classes=num_sub_classes,
-            target_key='detail_label',
-            label_mapping=global_to_local,
-            output_dir=sub_model_dir,
-            class_weights=detail_weights,  # 添加类别权重
-            use_focal_loss=True,  # 使用Focal Loss处理难分样本
-            label_smoothing=detail_label_smoothing  # 添加标签平滑
-        )
-        
-        sub_trainer.train(
-            num_epochs=detail_cfg['epochs'],
-            learning_rate=detail_cfg['learning_rate'],
-            weight_decay=detail_cfg['weight_decay'],
-            patience=detail_cfg['patience']
-        )
+        # 检查样本是否充足进行 K-Fold
+        if len(train_indices) >= major_kfold_n_splits:
+            # 样本充足，使用 K-Fold
+            print(f"   📊 启用 K-Fold 交叉验证 (n_splits={major_kfold_n_splits})")
+            
+            sub_model = DualStreamSpatio_TemporalFusionNetwork(
+                in_channels_dynamic=dyn_ch,
+                in_channels_static=sta_ch,
+                num_classes=num_sub_classes,
+                dropout=config.get('model.dropout', 0.25),
+                classifier_hidden_dims=config.get('model.classifier.hidden_dims', [128, 64, 32])
+            )
+            
+            sub_trainer = Trainer(
+                model=sub_model,
+                train_dataloader=None,  # K-Fold 内部会创建
+                val_dataloader=None,
+                num_classes=num_sub_classes,
+                target_key='detail_label',
+                label_mapping=global_to_local,
+                output_dir=sub_model_dir,
+                class_weights=detail_weights,
+                use_focal_loss=True,
+                label_smoothing=detail_label_smoothing,
+                model_init_params={  # 传入模型初始化参数
+                    'in_channels_dynamic': dyn_ch,
+                    'in_channels_static': sta_ch,
+                    'num_classes': num_sub_classes,
+                    'dropout': config.get('model.dropout', 0.25),
+                    'classifier_hidden_dims': config.get('model.classifier.hidden_dims', [128, 64, 32])
+                }
+            )
+            
+            kfold_results = sub_trainer.train_with_kfold(
+                dataset=train_subset,
+                num_epochs=detail_cfg['epochs'],
+                learning_rate=detail_cfg['learning_rate'],
+                weight_decay=detail_cfg['weight_decay'],
+                patience=detail_cfg['patience'],
+                n_splits=major_kfold_n_splits,
+                random_state=major_kfold_random_state,
+                debug=False,
+                accumulation_steps=1,
+                batch_size=detail_cfg['batch_size']
+            )
+            
+            print(f"   ✅ K-Fold 训练完成 | 平均精度: {kfold_results['mean_metrics'].get('accuracy', 0):.4f}")
+        else:
+            # 样本不足，自动降级到常规训练
+            print(f"   ⏭️  样本数({len(train_indices)}) < K-Fold 折数({major_kfold_n_splits})，使用常规训练")
+            
+            sub_model = DualStreamSpatio_TemporalFusionNetwork(
+                in_channels_dynamic=dyn_ch,
+                in_channels_static=sta_ch,
+                num_classes=num_sub_classes,
+                dropout=config.get('model.dropout', 0.25),
+                classifier_hidden_dims=config.get('model.classifier.hidden_dims', [128, 64, 32])
+            )
+            
+            # 动态决定是否 drop_last
+            use_drop_last = len(train_indices) > detail_cfg['batch_size']
+            
+            sub_trainer = Trainer(
+                model=sub_model,
+                train_dataloader=DataLoader(
+                    train_subset, 
+                    shuffle=True, 
+                    batch_size=detail_cfg['batch_size'], 
+                    collate_fn=collate_fn, 
+                    drop_last=use_drop_last,
+                    **common_cfg
+                ),
+                val_dataloader=DataLoader(
+                    val_subset, 
+                    shuffle=False, 
+                    batch_size=detail_cfg['batch_size'], 
+                    collate_fn=collate_fn, 
+                    **common_cfg
+                ),
+                num_classes=num_sub_classes,
+                target_key='detail_label',
+                label_mapping=global_to_local,
+                output_dir=sub_model_dir,
+                class_weights=detail_weights,
+                use_focal_loss=True,
+                label_smoothing=detail_label_smoothing
+            )
+            
+            sub_trainer.train(
+                num_epochs=detail_cfg['epochs'],
+                learning_rate=detail_cfg['learning_rate'],
+                weight_decay=detail_cfg['weight_decay'],
+                patience=detail_cfg['patience']
+            )
         
         with open(sub_model_dir / 'class_mapping.json', 'w', encoding='utf-8') as f:
             json.dump({

@@ -63,6 +63,68 @@ def predict_subset(model, dataset, indices, device, batch_size):
             
     return local_preds
 
+def predict_subset_ensemble(models_list, dataset, indices, device, batch_size, method='voting'):
+    """
+    集合预测：使用多个模型进行投票或概率平均
+    
+    Args:
+        models_list: 模型列表 (例如 5 个 K-Fold 模型)
+        method: 'voting' 多数投票，'averaging' 概率平均
+    
+    Returns:
+        ensemble_preds: 集合预测结果 (N,)
+    """
+    if len(indices) == 0:
+        return []
+    
+    subset = Subset(dataset, indices)
+    dataloader = DataLoader(subset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
+    
+    ensemble_preds = []
+    
+    for batch in dataloader:
+        dyn = batch['dynamic'].to(device)
+        sta = batch['static'].to(device)
+        batch_size_actual = dyn.size(0)
+        
+        if method == 'voting':
+            # 多数投票：每个模型投一票，选举出现次数最多的类别
+            all_preds = []
+            for model in models_list:
+                model.eval()
+                with torch.no_grad():
+                    outputs = model(dyn, sta)
+                    preds = torch.argmax(outputs['probabilities'], dim=1)
+                    all_preds.append(preds.cpu().numpy())
+            
+            all_preds = np.array(all_preds)  # (num_models, batch_size)
+            # 对每个样本，统计各类别的投票数，选择投票最多的类别
+            ensemble_batch = []
+            for i in range(batch_size_actual):
+                votes = all_preds[:, i]
+                # 多数投票：返回出现最多的类别
+                vote_result = np.bincount(votes.astype(int))
+                pred_class = np.argmax(vote_result)
+                ensemble_batch.append(pred_class)
+            ensemble_preds.extend(ensemble_batch)
+            
+        elif method == 'averaging':
+            # 概率平均：所有模型的概率取平均，然后选择最高概率的类别
+            all_probs = []
+            for model in models_list:
+                model.eval()
+                with torch.no_grad():
+                    outputs = model(dyn, sta)
+                    probs = torch.softmax(outputs['probabilities'], dim=1)
+                    all_probs.append(probs.cpu().numpy())
+            
+            all_probs = np.array(all_probs)  # (num_models, batch_size, num_classes)
+            avg_probs = np.mean(all_probs, axis=0)  # (batch_size, num_classes)
+            preds = np.argmax(avg_probs, axis=1)
+            ensemble_preds.extend(preds)
+    
+    return ensemble_preds
+
 def main():
     parser = argparse.ArgumentParser(description='分层模型快速评估')
     parser.add_argument('--config', type=str, default='config.yaml')
@@ -153,43 +215,53 @@ def main():
     # 阶段 A: 评估大类模型
     # =========================================================================
     print("\n" + "-"*50)
-    print("🏗️  Step 1: 大类预测 (Major Prediction)")
+    print("🏗️  Step 1: 大类预测 (Major Prediction - Ensemble)")
     print("-"*50)
     
-    major_model_path = output_dir / 'major_model' / 'best_model.pth'
-    if major_model_path.exists():
-        major_model = DualStreamSpatio_TemporalFusionNetwork(
-            in_channels_dynamic=dyn_ch, in_channels_static=sta_ch, num_classes=len(major_map)
-        ).to(device)
-        
-        if load_model_weights(major_model, major_model_path, device):
-            # 对所有数据进行大类预测
-            all_indices = list(range(num_samples))
-            preds = predict_subset(major_model, dataset, all_indices, device, args.batch_size)
-            pred_major_array = np.array(preds)
+    major_model_dir = output_dir / 'major_model'
+    fold_models = []
+    
+    # 加载 5 个 K-Fold 模型
+    for fold_idx in range(1, 6):
+        fold_path = major_model_dir / f'fold_{fold_idx}' / 'best_model.pth'
+        if fold_path.exists():
+            major_model = DualStreamSpatio_TemporalFusionNetwork(
+                in_channels_dynamic=dyn_ch, in_channels_static=sta_ch, num_classes=len(major_map)
+            ).to(device)
             
-            # 输出报告
-            print("\n📋 大类分类报告:")
-            major_names = [k for k, v in sorted(major_map.items(), key=lambda x: x[1])]
-            print(classification_report(true_major_array, pred_major_array, target_names=major_names, digits=4, zero_division=0))
+            if load_model_weights(major_model, fold_path, device):
+                fold_models.append(major_model)
+                print(f"   ✅ 加载大类模型 fold_{fold_idx}")
+    
+    if len(fold_models) > 0:
+        # 对所有数据进行大类集合预测
+        all_indices = list(range(num_samples))
+        preds = predict_subset_ensemble(fold_models, dataset, all_indices, device, args.batch_size, method='voting')
+        pred_major_array = np.array(preds)
+        
+        # 输出报告
+        print(f"\n📊 大类集合预测 (使用 {len(fold_models)} 个模型投票):")
+        print("📋 大类分类报告:")
+        major_names = [k for k, v in sorted(major_map.items(), key=lambda x: x[1])]
+        print(classification_report(true_major_array, pred_major_array, target_names=major_names, digits=4, zero_division=0))
     else:
-        print(f"❌ 大类模型缺失: {major_model_path}")
+        print(f"❌ 大类模型缺失: {major_model_dir / 'fold_1' / 'best_model.pth'}")
+        print("   💡 请确保已使用 K-Fold 训练过大类模型")
 
     # =========================================================================
     # 阶段 B: 评估小类模型 (双路径)
     # =========================================================================
     print("\n" + "-"*50)
-    print("🏗️  Step 2: 小类预测 (Detail Prediction)")
+    print("🏗️  Step 2: 小类预测 (Detail Prediction - Ensemble)")
     print("-"*50)
 
     # 遍历每一个大类 ID
     for major_name, major_id in major_map.items():
         sub_model_dir = output_dir / f"detail_model_{major_id}_{major_name}"
-        model_path = sub_model_dir / "best_model.pth"
         mapping_path = sub_model_dir / "class_mapping.json"
         
         # 如果该大类没有训练好的小类模型
-        if not model_path.exists():
+        if not (sub_model_dir / 'fold_1' / 'best_model.pth').exists():
             continue 
 
         # 加载局部映射
@@ -202,18 +274,25 @@ def main():
             
         num_sub_classes = len(local_to_global)
         
-        # 加载模型
-        sub_model = DualStreamSpatio_TemporalFusionNetwork(
-            in_channels_dynamic=dyn_ch, in_channels_static=sta_ch, num_classes=num_sub_classes
-        ).to(device)
+        # 加载 5 个 K-Fold 小类模型
+        fold_models = []
+        for fold_idx in range(1, 6):
+            fold_path = sub_model_dir / f'fold_{fold_idx}' / 'best_model.pth'
+            if fold_path.exists():
+                sub_model = DualStreamSpatio_TemporalFusionNetwork(
+                    in_channels_dynamic=dyn_ch, in_channels_static=sta_ch, num_classes=num_sub_classes
+                ).to(device)
+                
+                if load_model_weights(sub_model, fold_path, device):
+                    fold_models.append(sub_model)
         
-        if not load_model_weights(sub_model, model_path, device):
+        if len(fold_models) == 0:
             continue
         
         # --- 路径 1: Upper Bound (基于真实标签) ---
         true_indices = np.where(true_major_array == major_id)[0]
         if len(true_indices) > 0:
-            local_preds = predict_subset(sub_model, dataset, true_indices, device, args.batch_size)
+            local_preds = predict_subset_ensemble(fold_models, dataset, true_indices, device, args.batch_size, method='voting')
             global_preds = [local_to_global[p] for p in local_preds]
             pred_detail_upper[true_indices] = global_preds
             
@@ -221,11 +300,11 @@ def main():
         # 找出大类模型预测为当前 major_id 的所有样本 (可能包含误判进来的)
         pred_indices = np.where(pred_major_array == major_id)[0]
         if len(pred_indices) > 0:
-            local_preds = predict_subset(sub_model, dataset, pred_indices, device, args.batch_size)
+            local_preds = predict_subset_ensemble(fold_models, dataset, pred_indices, device, args.batch_size, method='voting')
             global_preds = [local_to_global[p] for p in local_preds]
             pred_detail_pipeline[pred_indices] = global_preds
             
-        print(f"👉 模型 [{major_name}]: 处理真实样本 {len(true_indices)} 个, 处理预测样本 {len(pred_indices)} 个")
+        print(f"👉 模型 [{major_name}]: 使用 {len(fold_models)} 个模型投票 | 处理真实样本 {len(true_indices)} 个, 处理预测样本 {len(pred_indices)} 个")
 
     # =========================================================================
     # 阶段 C: 生成报告
