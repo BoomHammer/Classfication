@@ -24,7 +24,7 @@ data_specs:
     raster_crs: "auto"                            # 栅格坐标系：'auto' 自动检测，或统一使用的 EPSG 代码
     target_crs: "EPSG:4326"                       # 目标处理坐标系（自动检测失败时使用此值）
     auto_reproject: false                         # 是否自动重投影到目标坐标系（仅当源坐标系不一致时）
-    patch_size: 16                                # 训练切片大小 (默认64x64像素)
+    patch_size: 32                                # 训练切片大小 (默认64x64像素)
     resolution: 250.0                              # 影像重采样分辨率 (米)
   
   temporal:
@@ -46,13 +46,13 @@ model:
   # in_channels_static: 由 RasterCrawler 自动检测
   # num_classes: 由 LabelEncoder 自动检测
   temporal_encoder: "LTAE"                        # 时间编码器类型
-  dropout: 0.1                                   # 正则化：增强到0.3以提高小类的稳定性
+  dropout: 0.05                                   # 正则化：增强到0.3以提高小类的稳定性
   # hidden_dim: 256                                  # 隐层维度
   label_smoothing: 0.01                           # 保守的标签平滑（对小类特别重要，避免梯度混乱）
   
   # 分类器隐藏层配置（可灵活调整）
   classifier:
-    hidden_dims: [128, 64, 32]                    # 隐藏层维度序列：depth=3, 128->64->32->num_classes
+    hidden_dims: [256,128, 64, 32]                    # 隐藏层维度序列：depth=3, 128->64->32->num_classes
 
 # 4. 训练超参数 (Training Hyperparameters)
 train:

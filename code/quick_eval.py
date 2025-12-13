@@ -222,11 +222,13 @@ def main():
     fold_models = []
     
     # 加载 5 个 K-Fold 模型
+    classifier_hidden_dims = config.get('model.classifier.hidden_dims', [128, 64, 32])
     for fold_idx in range(1, 6):
         fold_path = major_model_dir / f'fold_{fold_idx}' / 'best_model.pth'
         if fold_path.exists():
             major_model = DualStreamSpatio_TemporalFusionNetwork(
-                in_channels_dynamic=dyn_ch, in_channels_static=sta_ch, num_classes=len(major_map)
+                in_channels_dynamic=dyn_ch, in_channels_static=sta_ch, num_classes=len(major_map),
+                classifier_hidden_dims=classifier_hidden_dims
             ).to(device)
             
             if load_model_weights(major_model, fold_path, device):
@@ -280,7 +282,8 @@ def main():
             fold_path = sub_model_dir / f'fold_{fold_idx}' / 'best_model.pth'
             if fold_path.exists():
                 sub_model = DualStreamSpatio_TemporalFusionNetwork(
-                    in_channels_dynamic=dyn_ch, in_channels_static=sta_ch, num_classes=num_sub_classes
+                    in_channels_dynamic=dyn_ch, in_channels_static=sta_ch, num_classes=num_sub_classes,
+                    classifier_hidden_dims=classifier_hidden_dims
                 ).to(device)
                 
                 if load_model_weights(sub_model, fold_path, device):
