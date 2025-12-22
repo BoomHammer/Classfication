@@ -1,5 +1,5 @@
 {
-  "csv_file": "/home/dingboyang/Classfication/data/raw/traindata20250626ori.csv",
+  "csv_file": "E:\\UserFiles\\dingboyang\\Classfication\\data\\raw\\traindata20250626ori.csv",
   "total_samples": 1391,
   "detailed_classes": {
     "count": 32,

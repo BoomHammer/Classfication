@@ -20,7 +20,7 @@ import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
 from torch.utils.data import DataLoader, Subset
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
 
 # 导入本地模块
 sys.path.insert(0, str(Path(__file__).parent))
@@ -211,6 +211,15 @@ def main():
     # 2. Pipeline: 依据预测的大类，送入对应的小类模型 (反映真实系统能力)
     pred_detail_pipeline = np.full(num_samples, -1)
 
+    # 用于收集报告文本的缓冲区（后面会写入到 run_dir 下的文件）
+    report_lines = []
+    def append_report(s):
+        """同时打印并保存到内存缓冲区的辅助函数。"""
+        # 强制转换为字符串以避免非字符串对象写入错误
+        text = str(s)
+        print(text)
+        report_lines.append(text)
+
     # =========================================================================
     # 阶段 A: 评估大类模型
     # =========================================================================
@@ -242,10 +251,11 @@ def main():
         pred_major_array = np.array(preds)
         
         # 输出报告
-        print(f"\n📊 大类集合预测 (使用 {len(fold_models)} 个模型投票):")
-        print("📋 大类分类报告:")
+        append_report(f"\n📊 大类集合预测 (使用 {len(fold_models)} 个模型投票):")
+        append_report("📋 大类分类报告:")
         major_names = [k for k, v in sorted(major_map.items(), key=lambda x: x[1])]
-        print(classification_report(true_major_array, pred_major_array, target_names=major_names, digits=4, zero_division=0))
+        major_report = classification_report(true_major_array, pred_major_array, target_names=major_names, digits=4, zero_division=0)
+        append_report(major_report)
     else:
         print(f"❌ 大类模型缺失: {major_model_dir / 'fold_1' / 'best_model.pth'}")
         print("   💡 请确保已使用 K-Fold 训练过大类模型")
@@ -324,9 +334,22 @@ def main():
         unique_labels = sorted(list(set(y_true) | set(y_pred)))
         names = [inverse_detailed_map.get(i, str(i)) for i in unique_labels]
         
-        print("\n✅ 小类分类报告 (Upper Bound - 假设大类正确):")
-        print("   (仅包含已训练小类模型的类别)")
-        print(classification_report(y_true, y_pred, target_names=names, digits=4, zero_division=0))
+        append_report("\n✅ 小类分类报告 (Upper Bound - 假设大类正确):")
+        append_report("   (仅包含已训练小类模型的类别)")
+        upper_report = classification_report(y_true, y_pred, target_names=names, digits=4, zero_division=0)
+        append_report(upper_report)
+
+        # 计算并输出总体指标（OA、Precision、Recall、F1）——计算 macro、micro、weighted 三种平均
+        try:
+            oa = accuracy_score(y_true, y_pred)
+            append_report(f"🔢 小类总体指标 (Upper Bound) — OA: {oa:.4f}")
+            for avg in ['macro', 'micro', 'weighted']:
+                prec = precision_score(y_true, y_pred, average=avg, zero_division=0)
+                rec = recall_score(y_true, y_pred, average=avg, zero_division=0)
+                f1 = f1_score(y_true, y_pred, average=avg, zero_division=0)
+                append_report(f"   • {avg.capitalize()} — Precision: {prec:.4f}, Recall: {rec:.4f}, F1: {f1:.4f}")
+        except Exception as e:
+            append_report(f"⚠️ 无法计算 Upper Bound 总体指标: {e}")
     
     # 2. Pipeline 报告
     valid_mask_pipe = pred_detail_pipeline != -1
@@ -338,14 +361,24 @@ def main():
         unique_labels = sorted(list(set(y_true) | set(y_pred)))
         names = [inverse_detailed_map.get(i, str(i)) for i in unique_labels]
         
-        print("\n🚀 总体各小类分类报告 (Pipeline - 真实流水线):")
-        print("   (包含大类错误导致的传递误差)")
-        print(classification_report(y_true, y_pred, target_names=names, digits=4, zero_division=0))
+        append_report("\n🚀 总体各小类分类报告 (Pipeline - 真实流水线):")
+        append_report("   (包含大类错误导致的传递误差)")
+        pipe_report = classification_report(y_true, y_pred, target_names=names, digits=4, zero_division=0)
+        append_report(pipe_report)
         
-        acc = accuracy_score(y_true, y_pred)
-        print(f"🏆 总体小类准确率 (Pipeline Accuracy): {acc:.2%}")
+        # 计算并输出总体指标（OA、Precision、Recall、F1）——计算 macro、micro、weighted 三种平均
+        try:
+            oa = accuracy_score(y_true, y_pred)
+            append_report(f"🔢 小类总体指标 (Pipeline) — OA: {oa:.4f}")
+            for avg in ['macro', 'micro', 'weighted']:
+                prec = precision_score(y_true, y_pred, average=avg, zero_division=0)
+                rec = recall_score(y_true, y_pred, average=avg, zero_division=0)
+                f1 = f1_score(y_true, y_pred, average=avg, zero_division=0)
+                append_report(f"   • {avg.capitalize()} — Precision: {prec:.4f}, Recall: {rec:.4f}, F1: {f1:.4f}")
+        except Exception as e:
+            append_report(f"⚠️ 无法计算 Pipeline 总体指标: {e}")
     else:
-        print("\n❌ 无法生成流水线报告 (可能是大类模型未预测出任何有效类别)")
+        append_report("\n❌ 无法生成流水线报告 (可能是大类模型未预测出任何有效类别)")
 
     # 3. 保存详细结果
     id_col = config.get('data_specs.csv_columns.id', 'Index')
@@ -366,6 +399,15 @@ def main():
     save_path = output_dir / csv_name
     results_df.to_csv(save_path, index=False, encoding='utf-8-sig')
     print(f"\n💾 详细预测结果已保存: {save_path}")
+
+    # 将缓冲区中的文本写入到 run_dir 下的文本报告
+    try:
+        report_path = output_dir / f"eval_report_{args.split}.txt"
+        with open(report_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(report_lines))
+        print(f"💾 评估报告已保存: {report_path}")
+    except Exception as e:
+        print(f"❌ 保存评估报告失败: {e}")
 
 if __name__ == "__main__":
     main()
