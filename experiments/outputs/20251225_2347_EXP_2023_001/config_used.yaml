@@ -1,0 +1,78 @@
+project_name: SITS_LandCover_Classification
+experiment_id: EXP_2023_001
+paths:
+  data_dir: ../data/
+  csv_labels: ../data/raw/traindata20250626ori.csv
+  static_images_dir: ../data/raster/static/
+  dynamic_images_dir: ../data/raster/dynamic/
+  output_dir: ../experiments/outputs/
+  temp_dir: ../data/temp/
+data_specs:
+  csv_columns:
+    id: Index
+    longitude: X
+    latitude: Y
+    major_class: Formation
+    detail_class: Alliance
+  spatial:
+    csv_crs: auto
+    raster_crs: auto
+    target_crs: EPSG:4326
+    auto_reproject: false
+    patch_size: 32
+    resolution: 250.0
+  temporal:
+    pad_value: 0.0
+    missing_value_strategy: forward_fill
+    normalization_method: zscore
+  raster_crawler:
+    filename_pattern: GPP(?P<year>\d{2})(?P<month>\d{2})(?P<day>\d{2})
+    file_extensions:
+    - .tif
+    - .tiff
+    lazy_loading: true
+    build_rtree_index: true
+model:
+  name: DSSTFN
+  temporal_encoder: LTAE
+  dropout: 0.05
+  label_smoothing: 0.01
+  classifier:
+    hidden_dims:
+    - 256
+    - 128
+    - 64
+    - 32
+train:
+  seed: 42
+  num_workers: 8
+  split_ratio:
+  - 0.7
+  - 0.15
+  - 0.15
+  kfold:
+    n_splits: 5
+    random_state: 42
+    shuffle: true
+    ensemble:
+      enabled: true
+      method: voting
+  major_model:
+    epochs: 400
+    batch_size: 64
+    learning_rate: 0.0005
+    weight_decay: 0.0001
+    patience: 25
+    use_class_weights: true
+    use_sample_resampling: true
+    label_smoothing: 0.01
+  detail_model:
+    epochs: 300
+    batch_size: 32
+    learning_rate: 0.0003
+    weight_decay: 5.0e-05
+    patience: 20
+    min_samples: 5
+    use_class_weights: true
+    use_sample_resampling: true
+    label_smoothing: 0.01

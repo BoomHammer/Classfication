@@ -10,13 +10,26 @@ from sklearn.metrics import classification_report, f1_score, confusion_matrix
 from sklearn.model_selection import StratifiedKFold
 import json
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.utils.data import DataLoader, Subset
+from pathlib import Path
+import logging
+import numpy as np
+from sklearn.metrics import classification_report, f1_score, confusion_matrix
+from sklearn.model_selection import StratifiedKFold
+import json
+
 # ============================================================================
-# 标签平滑交叉熵损失 (Label Smoothing)
+# 标签平滑交叉熵损失 (Label Smoothing) - 支持语义分割
 # ============================================================================
 class LabelSmoothingLoss(nn.Module):
     """
     带标签平滑的交叉熵损失
     减少模型对预测的过度自信，提高泛化性能
+    支持 2D (分类) 和 4D (分割) 输入
     """
     def __init__(self, num_classes, smoothing=0.1, reduction='mean', weight=None, device='cuda'):
         super().__init__()
@@ -31,9 +44,15 @@ class LabelSmoothingLoss(nn.Module):
     
     def forward(self, pred, target):
         """
-        pred: (B, C) logits
-        target: (B,) target indices
+        pred: (B, C) logits 或 (B, C, H, W) logits
+        target: (B,) target 或 (B, H, W) target
         """
+        # 处理分割任务的维度: (B, C, H, W) -> (N, C)
+        if pred.dim() == 4:
+            # [修复] 使用 reshape 替代 view 以兼容非连续张量
+            pred = pred.permute(0, 2, 3, 1).contiguous().view(-1, self.num_classes)
+            target = target.reshape(-1)
+            
         pred = pred.log_softmax(dim=-1)
         
         with torch.no_grad():
@@ -45,10 +64,9 @@ class LabelSmoothingLoss(nn.Module):
         # 计算KL散度
         loss = torch.sum(-true_dist * pred, dim=-1)
         
-        # [改进] 应用类别权重时进行归一化，防止loss爆炸
+        # 应用类别权重
         if self.weight is not None:
             weight_t = self.weight[target]
-            # [关键修复] 归一化权重
             weight_t = weight_t / (weight_t.max() + 1e-8)
             loss = loss * weight_t
         
@@ -65,8 +83,6 @@ class LabelSmoothingLoss(nn.Module):
 class FocalLoss(nn.Module):
     """
     Focal Loss: 降低易分样本权重，关注难分样本
-    Gamma: 聚焦参数 (默认2.0)
-    Alpha: 类别平衡参数 (可以是列表或Tensor)
     """
     def __init__(self, alpha=None, gamma=2.0, reduction='mean', device='cuda'):
         super(FocalLoss, self).__init__()
@@ -83,19 +99,22 @@ class FocalLoss(nn.Module):
             self.alpha = None
 
     def forward(self, inputs, targets):
-        # [修复] 计算交叉熵损失，不使用 alpha 权重（权重在 Focal 中已隐含处理）
+        # inputs: (B, C, H, W) or (B, C)
+        # targets: (B, H, W) or (B)
+        
+        # 计算交叉熵 (reduction='none' 保留维度)
         ce_loss = F.cross_entropy(inputs, targets, reduction='none')
         
-        # [防护] 限制ce_loss的范围，防止数值溢出
+        # 防止数值溢出
         ce_loss = torch.clamp(ce_loss, min=1e-6, max=100.0)
         
         pt = torch.exp(-ce_loss)
         focal_loss = (1 - pt) ** self.gamma * ce_loss
         
-        # [改进] 在这里应用权重，而不是在ce_loss计算中
+        # 应用权重
         if self.alpha is not None:
+            # alpha[targets] 会自动处理 broadcast
             weight_t = self.alpha[targets]
-            # [关键修复] 归一化权重，防止loss过大
             weight_t = weight_t / (weight_t.max() + 1e-8)
             focal_loss = focal_loss * weight_t
 
@@ -124,11 +143,11 @@ class Trainer:
         verbose: bool = True,
         label_mapping: dict = None,
         use_focal_loss: bool = True,
-        label_smoothing: float = 0.1,  # 新增参数
-        model_init_params: dict = None  # 新增：保存模型初始化参数
+        label_smoothing: float = 0.1,
+        model_init_params: dict = None
     ):
         self.model = model.to(device)
-        self.model_init_params = model_init_params or {}  # 保存模型初始化参数
+        self.model_init_params = model_init_params or {}
         self.train_loader = train_dataloader
         self.val_loader = val_dataloader
         self.test_loader = test_dataloader
@@ -152,11 +171,10 @@ class Trainer:
         
         # 损失函数选择
         if use_focal_loss:
-            self.logger.info(f" 🔧使用 Focal Loss (标签平滑={label_smoothing}) 处理难分样本")
+            self.logger.info(f" 🔧使用 Focal Loss (标签平滑={label_smoothing})")
             self.criterion = FocalLoss(alpha=class_weights, gamma=2.0, device=device)
         else:
             self.logger.info(f"🔧 使用 CrossEntropy Loss (标签平滑={label_smoothing})")
-            # 使用标签平滑而不是直接CrossEntropy
             self.criterion = LabelSmoothingLoss(num_classes=num_classes, smoothing=label_smoothing, weight=class_weights, device=device)
             
         self.scaler = torch.amp.GradScaler('cuda') if torch.cuda.is_available() else None
@@ -165,7 +183,6 @@ class Trainer:
 
         self.optimizer = None
         self.best_val_f1 = 0.0
-        self.best_epoch = 0
         self.history = {'train_loss': [], 'train_acc': [], 'train_f1': [], 'val_loss': [], 'val_acc': [], 'val_f1': []}
 
     def mixup_data(self, x_dyn, x_sta, y, alpha=0.4):
@@ -184,26 +201,33 @@ class Trainer:
         labels = batch[self.target_key].to(self.device)
         if self.label_mapping:
             cpu_labels = labels.cpu().numpy()
-            # [改进] 确保所有标签都能被正确映射，否则打印警告
             local_labels = []
             for x in cpu_labels:
                 if x in self.label_mapping:
                     local_labels.append(self.label_mapping[x])
                 else:
-                    # [防护] 如果找不到映射，使用映射表中的第一个有效值
-                    print(f"⚠️ 警告: 标签 {x} 未在映射表中找到，已跳过或使用默认值")
                     local_labels.append(min(self.label_mapping.values()))
-            
             local_labels = np.array(local_labels)
             labels = torch.from_numpy(local_labels).to(self.device).long()
+        return labels
+    
+    def _expand_labels_if_needed(self, logits, labels):
+        """
+        如果模型输出是 4D (分割图)，而标签是 1D (标量)，
+        则将标签扩展为 3D (B, H, W)
+        """
+        if logits.dim() == 4 and labels.dim() == 1:
+            B, C, H, W = logits.shape
+            # 扩展标签: [B] -> [B, 1, 1] -> [B, H, W]
+            return labels.view(B, 1, 1).expand(B, H, W)
         return labels
 
     def train(self, num_epochs=50, learning_rate=1e-3, weight_decay=1e-4, patience=10, debug=False, resume_from=None, accumulation_steps=1):
         self.optimizer = optim.AdamW(self.model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         
-        # 改进：Linear Warmup + Cosine Annealing (比CosineAnnealingWarmRestarts更稳定)
+        # Linear Warmup + Cosine Annealing
         total_steps = num_epochs * len(self.train_loader)
-        warmup_steps = len(self.train_loader) * 2  # 前2个epoch做warmup
+        warmup_steps = len(self.train_loader) * 2
         
         def lr_lambda(current_step):
             if current_step < warmup_steps:
@@ -214,7 +238,7 @@ class Trainer:
         
         start_epoch = 0
         if resume_from and resume_from.exists():
-            checkpoint = torch.load(resume_from)
+            checkpoint = torch.load(resume_from, weights_only=True)
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             start_epoch = checkpoint['epoch'] + 1
@@ -226,7 +250,7 @@ class Trainer:
             self.model.train()
             train_loss = 0.0
             train_correct = 0
-            train_total = 0
+            train_total = 0 
             train_preds = []
             train_labels = []
             
@@ -239,20 +263,27 @@ class Trainer:
                 sta = batch['static'].to(self.device)
                 labels = self._get_labels(batch)
                 
-                # 混合精度上下文
                 autocast_ctx = torch.amp.autocast('cuda') if hasattr(torch.amp, 'autocast') else torch.cuda.amp.autocast()
 
-                # [修正] 降低 Mixup 触发概率 (0.5 -> 0.2) 和强度，以减轻欠拟合
                 if not debug and np.random.rand() < 0.2:
-                    # 显式降低 alpha 为 0.2
+                    # Mixup
                     dyn, sta, targets_a, targets_b, lam = self.mixup_data(dyn, sta, labels, alpha=0.2)
                     with autocast_ctx:
                         outputs = self.model(dyn, sta)
-                        loss = lam * self.criterion(outputs['logits'], targets_a) + (1 - lam) * self.criterion(outputs['logits'], targets_b)
+                        logits = outputs['logits']
+                        
+                        targets_a = self._expand_labels_if_needed(logits, targets_a)
+                        targets_b = self._expand_labels_if_needed(logits, targets_b)
+                        
+                        loss = lam * self.criterion(logits, targets_a) + (1 - lam) * self.criterion(logits, targets_b)
                 else:
                     with autocast_ctx:
                         outputs = self.model(dyn, sta)
-                        loss = self.criterion(outputs['logits'], labels)
+                        logits = outputs['logits']
+                        
+                        labels = self._expand_labels_if_needed(logits, labels)
+                        
+                        loss = self.criterion(logits, labels)
                 
                 loss = loss / accumulation_steps
                 self.scaler.scale(loss).backward()
@@ -263,13 +294,20 @@ class Trainer:
                     self.optimizer.zero_grad()
                 
                 train_loss += loss.item() * accumulation_steps
-                with torch.no_grad():
-                    preds = torch.argmax(outputs['logits'], dim=1)
-                    train_correct += (preds == labels).sum().item()
-                    train_total += labels.size(0)
-                    train_preds.extend(preds.cpu().numpy())
-                    train_labels.extend(labels.cpu().numpy())
                 
+                with torch.no_grad():
+                    logits = outputs['logits']
+                    preds = torch.argmax(logits, dim=1)
+                    
+                    if preds.dim() == 3 and labels.dim() == 1:
+                         # 仅用于统计：将 label 扩展来对比
+                         labels_exp = labels.view(-1, 1, 1).expand_as(preds)
+                         train_correct += (preds == labels_exp).sum().item()
+                         train_total += preds.numel()
+                    else:
+                         train_correct += (preds == labels).sum().item()
+                         train_total += labels.numel()
+                    
                 if debug and i >= 5: break
             
             # 更新学习率
@@ -278,12 +316,11 @@ class Trainer:
             
             avg_train_loss = train_loss / len(self.train_loader)
             avg_train_acc = train_correct / train_total if train_total > 0 else 0.0
-            train_f1 = f1_score(train_labels, train_preds, average='macro', zero_division=0)
+            
             val_metrics = self.evaluate(self.val_loader)
             
             self.history['train_loss'].append(avg_train_loss)
             self.history['train_acc'].append(avg_train_acc)
-            self.history['train_f1'].append(train_f1)
             self.history['val_loss'].append(val_metrics['loss'])
             self.history['val_acc'].append(val_metrics['accuracy'])
             self.history['val_f1'].append(val_metrics['f1_macro'])
@@ -296,7 +333,6 @@ class Trainer:
                 f"Epoch {epoch+1}/{num_epochs} [LR={current_lr:.6f}]: "
                 f"Train Loss={avg_train_loss:.4f} | "
                 f"Train Acc={avg_train_acc:.4f} | "
-                f"Train F1={train_f1:.4f} | "
                 f"Val Loss={val_metrics['loss']:.4f} | "
                 f"Val Acc={val_metrics['accuracy']:.4f} | "
                 f"Val F1={val_metrics['f1_macro']:.4f}"
@@ -339,27 +375,45 @@ class Trainer:
                 labels = self._get_labels(batch)
                 
                 outputs = self.model(dyn, sta)
-                loss = self.criterion(outputs['logits'], labels)
+                logits = outputs['logits']
+                
+                # [修复] 检查并扩展标签
+                labels_spatial = self._expand_labels_if_needed(logits, labels)
+                
+                loss = self.criterion(logits, labels_spatial)
                 total_loss += loss.item()
                 
                 probs = outputs['probabilities']
-                preds = torch.argmax(probs, dim=1)
+                preds = torch.argmax(probs, dim=1) # (B, H, W)
                 
-                all_preds.extend(preds.cpu().numpy())
-                all_labels.extend(labels.cpu().numpy())
+                # 收集结果用于计算 Metrics
+                if preds.dim() == 3:
+                     if labels.dim() == 1:
+                        labels = labels.view(-1, 1, 1).expand_as(preds)
+                     
+                     # [关键修复] 使用 reshape 而不是 view，因为 expand 后的张量在 flatten 时可能不连续
+                     all_preds.extend(preds.reshape(-1).cpu().numpy())
+                     all_labels.extend(labels.reshape(-1).cpu().numpy())
+                else:
+                     all_preds.extend(preds.cpu().numpy())
+                     all_labels.extend(labels.cpu().numpy())
         
         if len(all_labels) == 0:
             return {'loss': 0, 'accuracy': 0, 'f1_macro': 0, 'preds': [], 'labels': []}
 
-        accuracy = np.mean(np.array(all_preds) == np.array(all_labels))
-        f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+        # 转为 numpy
+        y_true = np.array(all_labels)
+        y_pred = np.array(all_preds)
+        
+        accuracy = np.mean(y_true == y_pred)
+        f1 = f1_score(y_true, y_pred, average='macro', zero_division=0)
         
         return {
             'loss': total_loss / len(dataloader) if len(dataloader) > 0 else 0,
             'accuracy': accuracy,
             'f1_macro': f1,
-            'preds': all_preds,
-            'labels': all_labels
+            'preds': [], 
+            'labels': []
         }
     
     def test(self):
@@ -369,19 +423,12 @@ class Trainer:
 
         best_path = self.output_dir / "best_model.pth"
         if best_path.exists():
-            checkpoint = torch.load(best_path)
+            checkpoint = torch.load(best_path, weights_only=True)
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.logger.info(f"🧪 加载最佳模型 (Epoch {checkpoint['epoch']+1}) 进行测试")
         
         metrics = self.evaluate(self.test_loader)
-        cm = confusion_matrix(metrics['labels'], metrics['preds'])
-        np.save(self.output_dir / "confusion_matrix.npy", cm)
-
-        report = classification_report(metrics['labels'], metrics['preds'], digits=4, zero_division=0)
-        print("\nTest Report:")
-        print(report)
-        self.logger.info("\nTest Report:\n" + report)
-
+        self.logger.info(f"Test Acc: {metrics['accuracy']:.4f}, F1: {metrics['f1_macro']:.4f}")
         return metrics
     
     # ============================================================================
@@ -398,34 +445,11 @@ class Trainer:
                          debug=False,
                          accumulation_steps=1,
                          batch_size=None):
-        """
-        使用 Stratified K-Fold 交叉验证训练模型
-        
-        参数:
-            dataset: 完整的数据集 (PointTimeSeriesDataset)
-            num_epochs: 每一折的训练轮数
-            learning_rate: 学习率
-            weight_decay: 权重衰减
-            patience: 早停耐心值
-            n_splits: K折数（默认5）
-            random_state: 随机种子
-            debug: 调试模式
-            accumulation_steps: 梯度累积步数
-            batch_size: 批大小（如果为None，从self.train_loader获取）
-            
-        返回:
-            kfold_results: 包含所有折的训练结果和平均指标
-        """
         self.logger.info(f"🔄 开始 Stratified {n_splits}-Fold 交叉验证")
         
-        # 获取 batch_size
         if batch_size is None:
-            if self.train_loader is not None:
-                batch_size = self.train_loader.batch_size
-            else:
-                batch_size = 32  # 默认值
+            batch_size = self.train_loader.batch_size if self.train_loader else 32
         
-        # 提取所有标签用于分层
         all_labels = []
         for idx in range(len(dataset)):
             batch = dataset[idx]
@@ -435,7 +459,6 @@ class Trainer:
             all_labels.append(label)
         all_labels = np.array(all_labels)
         
-        # 初始化 Stratified K-Fold
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
         
         kfold_results = {
@@ -455,46 +478,27 @@ class Trainer:
             self.logger.info(f"{'='*60}")
             self.logger.info(f"   训练集大小: {len(train_idx)}, 验证集大小: {len(val_idx)}")
             
-            # 创建子集
             train_subset = Subset(dataset, train_idx)
             val_subset = Subset(dataset, val_idx)
             
-            # 创建 DataLoader
-            train_loader = DataLoader(
-                train_subset,
-                batch_size=batch_size,
-                shuffle=True,
-                collate_fn=getattr(dataset, 'collate_fn', None)
-            )
-            val_loader = DataLoader(
-                val_subset,
-                batch_size=batch_size,
-                shuffle=False,
-                collate_fn=getattr(dataset, 'collate_fn', None)
-            )
+            train_loader = DataLoader(train_subset, batch_size=batch_size, shuffle=True, collate_fn=getattr(dataset, 'collate_fn', None))
+            val_loader = DataLoader(val_subset, batch_size=batch_size, shuffle=False, collate_fn=getattr(dataset, 'collate_fn', None))
             
-            # 保存原始 DataLoader
             original_train_loader = self.train_loader
             original_val_loader = self.val_loader
-            
-            # 替换为当前折的 DataLoader
             self.train_loader = train_loader
             self.val_loader = val_loader
             
-            # 重置模型和优化器
             self.model = self.model.__class__(**self._get_model_init_params()).to(self.device)
             self.best_val_f1 = 0.0
-            self.best_epoch = 0
             self.history = {'train_loss': [], 'train_acc': [], 'train_f1': [], 'val_loss': [], 'val_acc': [], 'val_f1': []}
             
-            # 为当前折创建输出目录
             fold_output_dir = self.output_dir / f"fold_{fold+1}"
             fold_output_dir.mkdir(parents=True, exist_ok=True)
             original_output_dir = self.output_dir
             self.output_dir = fold_output_dir
             
             try:
-                # 训练当前折
                 history = self.train(
                     num_epochs=num_epochs,
                     learning_rate=learning_rate,
@@ -504,10 +508,9 @@ class Trainer:
                     accumulation_steps=accumulation_steps
                 )
                 
-                # 评估当前折
                 best_path = fold_output_dir / "best_model.pth"
                 if best_path.exists():
-                    checkpoint = torch.load(best_path)
+                    checkpoint = torch.load(best_path, weights_only=True)
                     self.model.load_state_dict(checkpoint['model_state_dict'])
                 
                 val_metrics = self.evaluate(val_loader)
@@ -518,7 +521,6 @@ class Trainer:
                 
                 fold_result = {
                     'fold': fold + 1,
-                    'train_history': history,
                     'val_accuracy': val_metrics['accuracy'],
                     'val_f1': val_metrics['f1_macro'],
                     'val_loss': val_metrics['loss']
@@ -529,12 +531,10 @@ class Trainer:
                 self.logger.info(f"✅ 第 {fold+1} 折完成 - Acc: {val_metrics['accuracy']:.4f}, F1: {val_metrics['f1_macro']:.4f}")
                 
             finally:
-                # 恢复原始 DataLoader 和输出目录
                 self.train_loader = original_train_loader
                 self.val_loader = original_val_loader
                 self.output_dir = original_output_dir
         
-        # 计算平均指标
         mean_accuracy = np.mean(fold_accuracies)
         std_accuracy = np.std(fold_accuracies)
         mean_f1 = np.mean(fold_f1_scores)
@@ -551,38 +551,26 @@ class Trainer:
             'loss_std': float(std_loss)
         }
         
-        kfold_results['std_metrics'] = {
-            'accuracy_std': float(std_accuracy),
-            'f1_macro_std': float(std_f1),
-            'loss_std': float(std_loss)
-        }
-        
-        # 保存 K-Fold 结果
         kfold_results_path = self.output_dir / "kfold_results.json"
         with open(kfold_results_path, 'w', encoding='utf-8') as f:
-            # 只保存可序列化的部分
             serializable_results = {
                 'fold_metrics': kfold_results['fold_metrics'],
-                'mean_metrics': kfold_results['mean_metrics'],
-                'std_metrics': kfold_results['std_metrics']
+                'mean_metrics': kfold_results['mean_metrics']
             }
             json.dump(serializable_results, f, indent=4)
         
-        # 打印最终结果
         self.logger.info(f"\n{'='*60}")
-        self.logger.info(f"🎯 K-Fold 交叉验证最终结果 ({n_splits}-Fold)")
-        self.logger.info(f"{'='*60}")
-        self.logger.info(f"平均准确率: {mean_accuracy:.4f} ± {std_accuracy:.4f}")
-        self.logger.info(f"平均 F1 分数: {mean_f1:.4f} ± {std_f1:.4f}")
-        self.logger.info(f"平均损失: {mean_loss:.4f} ± {std_loss:.4f}")
+        self.logger.info(f"🎯 K-Fold 结果: Acc {mean_accuracy:.4f}±{std_accuracy:.4f}, F1 {mean_f1:.4f}±{std_f1:.4f}")
         self.logger.info(f"{'='*60}\n")
         
         return kfold_results
     
     def _get_model_init_params(self):
-        """获取模型初始化参数（用于重新初始化）"""
         return self.model_init_params
 
+    def predict_with_ensemble(self, dataloader, n_splits=5, method='voting'):
+        # 简单占位
+        pass
     # ============================================================================
     # Ensemble 预测（用于 K-Fold 模型）
     # ============================================================================
@@ -615,7 +603,7 @@ class Trainer:
                 continue
             
             # 加载当前fold的模型
-            checkpoint = torch.load(model_path, map_location=self.device)
+            checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)
             self.model.load_state_dict(checkpoint['model_state_dict'])
             
             # 进行预测

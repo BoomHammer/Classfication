@@ -1,10 +1,10 @@
 """
-model_architecture.py: 双流时空融合网络 (Dual-Stream Spatio-Temporal Fusion Network) - 改进版
-改进点：
-1. 引入 Residual Block 增强 SpatialEncoder
-2. 引入 Gated Fusion 机制优化动静态特征融合
-3. [本次修正] L-TAE 使用中心像素计算注意力，避免背景噪声干扰
-4. [本次修正] 调整默认 Dropout 防止欠拟合
+model_architecture.py: 双流时空融合网络 (语义分割版)
+修改说明：
+1. 移除了 Flatten 和 Global Pooling，保留空间维度。
+2. 引入 Decoder 模块，将下采样后的特征恢复到原始分辨率。
+3. L-TAE 改为 Pixel-wise 模式，对每个像素计算时间注意力。
+4. 输出形状从 (B, NumClasses) 变为 (B, NumClasses, H, W)。
 """
 
 import math
@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from typing import Dict
 
 # ============================================================================
-# 基础组件：位置编码、L-TAE
+# 基础组件：位置编码
 # ============================================================================
 
 class PositionalEncoding(nn.Module):
@@ -29,22 +29,41 @@ class PositionalEncoding(nn.Module):
             pe[:, 1::2] = torch.cos(position * div_term[:-1])
         else:
             pe[:, 1::2] = torch.cos(position * div_term)
+        # 调整形状以适应 (Batch*H*W, T, C) 或 (Batch, T, C)
         self.register_buffer('pe', pe.unsqueeze(0))
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (N, T, C)
         x = x + self.pe[:, :x.size(1)]
         return self.dropout(x)
 
-class LightweightTemporalAttentionEncoder(nn.Module):
-    def __init__(self, in_channels: int, patch_size: int, temporal_steps: int = 12, hidden_dim: int = 64, dropout: float = 0.1):
+# ============================================================================
+# 核心组件：Pixel-wise L-TAE (支持空间特征图)
+# ============================================================================
+
+class PixelWiseLTAE(nn.Module):
+    """
+    像素级轻量级时间注意力编码器
+    输入: (B, T, C, H, W)
+    输出: (B, C_out, H, W)
+    """
+    def __init__(self, in_channels: int, temporal_steps: int = 12, hidden_dim: int = 64, dropout: float = 0.1):
         super().__init__()
+        self.in_channels = in_channels
+        
+        # 位置编码处理 (我们将空间展平放到 Batch 维度来处理时间序列)
         self.pos_encoding = PositionalEncoding(d_model=in_channels, max_len=temporal_steps, dropout=dropout)
-        self.temporal_attention_net = nn.Sequential(
+        
+        # 注意力计算 MLP (使用 1x1 卷积代替 Linear 以保留空间处理能力，或者 reshape 后用 Linear)
+        # 这里为了效率，我们 reshape 为 (B*H*W, T, C) 统一处理
+        self.attention_net = nn.Sequential(
             nn.Linear(in_channels, hidden_dim),
             nn.ReLU(inplace=True),
             nn.Dropout(dropout),
-            nn.Linear(hidden_dim, 1),
+            nn.Linear(hidden_dim, 1), # 输出 Attention Score
         )
+        
+        # 输出投影 (1x1 Conv)
         self.output_projection = nn.Sequential(
             nn.Conv2d(in_channels, hidden_dim, kernel_size=1),
             nn.BatchNorm2d(hidden_dim),
@@ -54,32 +73,36 @@ class LightweightTemporalAttentionEncoder(nn.Module):
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         B, T, C, H, W = x.shape
         
-        # [改进] 使用中心区域特征来计算时间注意力，而不是全图平均
-        # 避免边缘的异质背景（如农田、裸地）干扰对中心目标（如草甸）的判断
-        center_h, center_w = H // 2, W // 2
-        # 取中心像素特征 (B, T, C)
-        x_center = x[:, :, :, center_h, center_w]
+        # 1. 变形: (B, T, C, H, W) -> (B, H, W, T, C) -> (B*H*W, T, C)
+        # 这样我们可以对每个像素独立应用时间注意力
+        x_pixel = x.permute(0, 3, 4, 1, 2).reshape(B * H * W, T, C)
         
-        # 将中心特征用于计算 Attention Score
-        x_flat = x_center.reshape(-1, C)
-        x_pos = self.pos_encoding(x_flat.unsqueeze(1)).squeeze(1).reshape(B, T, C)
+        # 2. 加上位置编码
+        x_pos = self.pos_encoding(x_pixel)
         
-        attention_scores = self.temporal_attention_net(x_pos).squeeze(-1) # (B, T)
-        attention_weights = F.softmax(attention_scores, dim=1)
+        # 3. 计算注意力分数: (B*H*W, T, 1) -> (B*H*W, T)
+        attn_scores = self.attention_net(x_pos).squeeze(-1)
+        attn_weights = F.softmax(attn_scores, dim=1) # 在时间维度归一化
         
-        # Temporal Aggregation: 使用计算出的权重对整个 Patch 进行加权
-        weighted_x = x * attention_weights.reshape(B, T, 1, 1, 1)
-        aggregated = weighted_x.sum(dim=1) # (B, C, H, W)
+        # 4. 加权聚合: (B*H*W, T, 1) * (B*H*W, T, C) -> Sum over T -> (B*H*W, C)
+        attn_weights_expanded = attn_weights.unsqueeze(-1)
+        weighted_x = x_pixel * attn_weights_expanded
+        aggregated = weighted_x.sum(dim=1)
+        
+        # 5. 还原空间维度: (B*H*W, C) -> (B, H, W, C) -> (B, C, H, W)
+        aggregated = aggregated.view(B, H, W, C).permute(0, 3, 1, 2)
+        attn_weights_map = attn_weights.view(B, H, W, T).permute(0, 3, 1, 2) # (B, T, H, W)
+        
+        # 6. 输出投影 (Conv2d 1x1)
         output_features = self.output_projection(aggregated)
         
-        return {'aggregated': output_features, 'attention_weights': attention_weights}
+        return {'aggregated': output_features, 'attention_weights': attn_weights_map}
 
 # ============================================================================
-# 改进组件：ResBlock Spatial Encoder & Gated Fusion
+# 空间编码器 (Fully Convolutional)
 # ============================================================================
 
 class ResidualBlock(nn.Module):
-    """标准的 ResNet BasicBlock"""
     def __init__(self, in_channels, out_channels, stride=1, dropout=0.1):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -105,18 +128,21 @@ class ResidualBlock(nn.Module):
         return out
 
 class SpatialEncoder(nn.Module):
-    """改进后的空间编码器，使用残差结构"""
-    def __init__(self, in_channels: int, hidden_dim: int = 64, patch_size: int = 64, dropout: float = 0.1):
+    """
+    提取空间特征，带有下采样
+    Input: (B, C, H, W) -> Output: (B, Hidden, H/4, W/4)
+    """
+    def __init__(self, in_channels: int, hidden_dim: int = 64, dropout: float = 0.1):
         super().__init__()
-        # 初始卷积
+        # Stem
         self.stem = nn.Sequential(
             nn.Conv2d(in_channels, hidden_dim // 2, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(hidden_dim // 2),
             nn.ReLU(inplace=True)
         )
-        # 残差层
-        self.layer1 = ResidualBlock(hidden_dim // 2, hidden_dim, stride=2, dropout=dropout)
-        self.layer2 = ResidualBlock(hidden_dim, hidden_dim, stride=2, dropout=dropout)
+        # 下采样层 (总共下采样 4 倍)
+        self.layer1 = ResidualBlock(hidden_dim // 2, hidden_dim, stride=2, dropout=dropout) # H/2
+        self.layer2 = ResidualBlock(hidden_dim, hidden_dim, stride=2, dropout=dropout)      # H/4
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.stem(x)
@@ -124,72 +150,111 @@ class SpatialEncoder(nn.Module):
         x = self.layer2(x)
         return x
 
-class GatedFusion(nn.Module):
-    """门控融合模块：自动学习动态和静态特征的权重"""
-    def __init__(self, fusion_dim: int):
-        super().__init__()
-        self.gate_net = nn.Sequential(
-            nn.Linear(fusion_dim * 2, fusion_dim),
-            nn.Sigmoid()
-        )
-        
-    def forward(self, dynamic_emb, static_emb):
-        # dynamic_emb: (B, fusion_dim)
-        # static_emb:  (B, fusion_dim)
-        combined = torch.cat([dynamic_emb, static_emb], dim=1)
-        z = self.gate_net(combined)
-        # 融合: z * dynamic + (1-z) * static
-        return z * dynamic_emb + (1 - z) * static_emb
-
 # ============================================================================
-# 分支定义
+# 分支定义 (保持特征图结构)
 # ============================================================================
 
 class DynamicStreamBranch(nn.Module):
-    def __init__(self, in_channels: int, hidden_dim: int, fusion_dim: int, patch_size: int, temporal_steps: int, dropout: float):
+    def __init__(self, in_channels: int, hidden_dim: int, fusion_dim: int, temporal_steps: int, dropout: float):
         super().__init__()
-        self.spatial_encoder = SpatialEncoder(in_channels, hidden_dim, patch_size, dropout)
-        # 注意：SpatialEncoder 现在输出通道数是 hidden_dim
-        self.temporal_encoder = LightweightTemporalAttentionEncoder(hidden_dim, patch_size // 4, temporal_steps, hidden_dim, dropout)
-        self.fusion_net = nn.Sequential(
-            nn.AdaptiveAvgPool2d((1, 1)), 
-            nn.Flatten(),
-            nn.Linear(hidden_dim, fusion_dim), 
-            nn.LayerNorm(fusion_dim), # 改用 LayerNorm 适应 Flatten 后的特征
-            nn.ReLU(inplace=True), 
-            nn.Dropout(dropout),
+        self.spatial_encoder = SpatialEncoder(in_channels, hidden_dim, dropout)
+        # 注意: L-TAE 输入维度现在是 hidden_dim
+        self.temporal_encoder = PixelWiseLTAE(hidden_dim, temporal_steps, hidden_dim, dropout)
+        
+        # 融合前的投影 (使用 1x1 Conv)
+        self.projection = nn.Sequential(
+            nn.Conv2d(hidden_dim, fusion_dim, kernel_size=1),
+            nn.BatchNorm2d(fusion_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(dropout),
         )
     
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         B, T, C, H, W = x.shape
-        # 共享空间编码器权重处理所有时间步
-        # (B*T, C, H, W) -> (B*T, hidden_dim, H', W')
+        # 处理每一帧的空间特征
         x_reshaped = x.view(B * T, C, H, W)
-        x_spatial = self.spatial_encoder(x_reshaped)
+        x_spatial = self.spatial_encoder(x_reshaped) # (B*T, hidden, H/4, W/4)
+        
+        # 恢复时间维度
         _, C_new, H_new, W_new = x_spatial.shape
         x_spatial = x_spatial.view(B, T, C_new, H_new, W_new)
         
-        temp_out = self.temporal_encoder(x_spatial)
-        return {'embeddings': self.fusion_net(temp_out['aggregated']), 'attention_weights': temp_out['attention_weights']}
+        # 时间聚合 (Pixel-wise)
+        temp_out = self.temporal_encoder(x_spatial) # (B, hidden, H/4, W/4)
+        
+        return {'embeddings': self.projection(temp_out['aggregated']), 'attention_weights': temp_out['attention_weights']}
 
 class StaticStreamBranch(nn.Module):
-    def __init__(self, in_channels: int, hidden_dim: int, fusion_dim: int, patch_size: int, dropout: float):
+    def __init__(self, in_channels: int, hidden_dim: int, fusion_dim: int, dropout: float):
         super().__init__()
-        self.spatial_encoder = SpatialEncoder(in_channels, hidden_dim, patch_size, dropout)
-        self.fusion_net = nn.Sequential(
-            nn.AdaptiveAvgPool2d((1, 1)), 
-            nn.Flatten(),
-            nn.Linear(hidden_dim, fusion_dim), 
-            nn.LayerNorm(fusion_dim),
-            nn.ReLU(inplace=True), 
-            nn.Dropout(dropout),
+        self.spatial_encoder = SpatialEncoder(in_channels, hidden_dim, dropout)
+        
+        self.projection = nn.Sequential(
+            nn.Conv2d(hidden_dim, fusion_dim, kernel_size=1),
+            nn.BatchNorm2d(fusion_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(dropout),
         )
     
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
-        return {'embeddings': self.fusion_net(self.spatial_encoder(x))}
+        # x: (B, C, H, W) -> (B, hidden, H/4, W/4)
+        spatial_out = self.spatial_encoder(x)
+        return {'embeddings': self.projection(spatial_out)}
 
 # ============================================================================
-# 主模型：双流时空融合网络
+# 解码器 (Decoder) - 用于语义分割
+# ============================================================================
+
+class Decoder(nn.Module):
+    """
+    简单解码器：将下采样 4 倍的特征图恢复到原始分辨率
+    Structure: Upsample -> Conv -> Upsample -> Conv
+    """
+    def __init__(self, in_channels: int, out_channels: int, dropout: float = 0.1):
+        super().__init__()
+        
+        # Stage 1: H/4 -> H/2
+        self.up1 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels // 2, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(in_channels // 2),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(dropout)
+        )
+        
+        # Stage 2: H/2 -> H
+        self.up2 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(in_channels // 2, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(dropout)
+        )
+
+    def forward(self, x):
+        x = self.up1(x)
+        x = self.conv1(x)
+        x = self.up2(x)
+        x = self.conv2(x)
+        return x
+
+class GatedFusion(nn.Module):
+    """像素级门控融合 (使用 1x1 Conv)"""
+    def __init__(self, fusion_dim: int):
+        super().__init__()
+        # 使用 1x1 Conv 代替 Linear
+        self.gate_net = nn.Sequential(
+            nn.Conv2d(fusion_dim * 2, fusion_dim, kernel_size=1),
+            nn.Sigmoid()
+        )
+        
+    def forward(self, dynamic_emb, static_emb):
+        combined = torch.cat([dynamic_emb, static_emb], dim=1)
+        z = self.gate_net(combined)
+        return z * dynamic_emb + (1 - z) * static_emb
+
+# ============================================================================
+# 主模型：双流时空融合分割网络
 # ============================================================================
 
 class DualStreamSpatio_TemporalFusionNetwork(nn.Module):
@@ -198,75 +263,67 @@ class DualStreamSpatio_TemporalFusionNetwork(nn.Module):
         in_channels_dynamic: int,
         in_channels_static: int,
         num_classes: int,
-        patch_size: int = 64,
         temporal_steps: int = 12,
-        hidden_dim: int = 128, # [默认值建议] 保持足够容量
+        hidden_dim: int = 128, 
         fusion_dim: int = 128,
-        dropout: float = 0.1,  # [默认值建议] 降低默认 Dropout 以缓解欠拟合 (原0.2/0.3)
-        classifier_hidden_dims: list = None,  # 分类器隐藏层维度，如 [128, 64, 32]
+        dropout: float = 0.1,
+        classifier_hidden_dims: list = None, # 这里作为解码器前的中间层
+        **kwargs # 兼容旧接口
     ):
         super().__init__()
-        
         self.num_classes = num_classes
         
-        # 如果未指定分类器隐藏层，使用默认值
-        if classifier_hidden_dims is None:
-            classifier_hidden_dims = [128, 64, 32]
-        
-        # 动态分支
+        # 1. 动态分支
         self.dynamic_stream = DynamicStreamBranch(
             in_channels=in_channels_dynamic, hidden_dim=hidden_dim, fusion_dim=fusion_dim,
-            patch_size=patch_size, temporal_steps=temporal_steps, dropout=dropout,
+            temporal_steps=temporal_steps, dropout=dropout,
         )
         
-        # 静态分支
+        # 2. 静态分支
         self.static_stream = StaticStreamBranch(
             in_channels=in_channels_static, hidden_dim=hidden_dim, fusion_dim=fusion_dim,
-            patch_size=patch_size, dropout=dropout,
+            dropout=dropout,
         )
         
-        # 门控融合
+        # 3. 融合模块
         self.gated_fusion = GatedFusion(fusion_dim)
-
-        # 分类头 - 根据classifier_hidden_dims动态构建隐藏层
-        classifier_layers = []
-        prev_dim = fusion_dim
         
-        for hidden_dim_size in classifier_hidden_dims:
-            classifier_layers.extend([
-                nn.Linear(prev_dim, hidden_dim_size),
-                nn.BatchNorm1d(hidden_dim_size),
-                nn.ReLU(inplace=True),
-                nn.Dropout(dropout),
-            ])
-            prev_dim = hidden_dim_size
+        # 4. 解码器 (Decoder) + 分类头
+        # 融合后的特征图大小是 (B, fusion_dim, H/4, W/4)
+        # 我们先解码回 (B, 64, H, W)，然后输出分类
         
-        # 输出层
-        classifier_layers.append(nn.Linear(prev_dim, num_classes))
+        decoder_hidden = 64
+        self.decoder = Decoder(in_channels=fusion_dim, out_channels=decoder_hidden, dropout=dropout)
         
-        self.classifier = nn.Sequential(*classifier_layers)
+        # 最终像素分类器 (1x1 Conv)
+        self.classifier = nn.Conv2d(decoder_hidden, num_classes, kernel_size=1)
         
         self._init_weights()
     
     def _init_weights(self):
         for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None: nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Conv2d):
+            if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm, nn.BatchNorm1d)):
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None: nn.init.constant_(m.bias, 0)
     
     def forward(self, dynamic: torch.Tensor, static: torch.Tensor, return_aux: bool = False) -> Dict[str, torch.Tensor]:
-        dyn_out = self.dynamic_stream(dynamic)
-        sta_out = self.static_stream(static)
+        # 1. 编码
+        dyn_out = self.dynamic_stream(dynamic)  # (B, fusion_dim, H/4, W/4)
+        sta_out = self.static_stream(static)    # (B, fusion_dim, H/4, W/4)
         
-        # 使用门控融合替代简单的 concat
+        # 2. 融合
         fused_embedding = self.gated_fusion(dyn_out['embeddings'], sta_out['embeddings'])
         
-        logits = self.classifier(fused_embedding)
+        # 3. 解码 (上采样)
+        decoded_features = self.decoder(fused_embedding) # (B, decoder_hidden, H, W)
+        
+        # 4. 分类
+        logits = self.classifier(decoded_features) # (B, num_classes, H, W)
         
         result = {'logits': logits, 'probabilities': F.softmax(logits, dim=1)}
         
@@ -279,7 +336,7 @@ class DualStreamSpatio_TemporalFusionNetwork(nn.Module):
 
     def get_model_summary(self) -> Dict:
         return {
-            'model_name': self.__class__.__name__,
+            'model_name': self.__class__.__name__ + " (Segmentation)",
             'total_parameters': sum(p.numel() for p in self.parameters()),
             'trainable_parameters': sum(p.numel() for p in self.parameters() if p.requires_grad),
             'num_classes': self.num_classes
